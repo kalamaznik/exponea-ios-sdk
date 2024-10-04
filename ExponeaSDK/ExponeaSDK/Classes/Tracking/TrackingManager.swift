@@ -34,18 +34,6 @@ class TrackingManager {
         return database.currentCustomer.pushToken
     }
 
-    /// The manager for push registration and delivery tracking
-    lazy var notificationsManager: PushNotificationManagerType = PushNotificationManager(
-        trackingConsentManager: Exponea.shared.trackingConsentManager!,
-        trackingManager: self,
-        swizzlingEnabled: repository.configuration.automaticPushNotificationTracking,
-        requirePushAuthorization: repository.configuration.requirePushAuthorization,
-        appGroup: repository.configuration.appGroup,
-        tokenTrackFrequency: repository.configuration.tokenTrackFrequency,
-        currentPushToken: database.currentCustomer.pushToken,
-        lastTokenTrackDate: database.currentCustomer.lastTokenTrackDate,
-        urlOpener: UrlOpener()
-    )
     private var inAppMessageManager: InAppMessagesManagerType?
     private var flushingManager: FlushingManagerType
 
@@ -248,7 +236,7 @@ extension TrackingManager: TrackingManagerType {
         if canUseDefaultProperties(for: type) {
             payload = payload.addProperties(repository.configuration.defaultProperties)
         }
-        if (payload.customerIds.isEmpty) {
+        if payload.customerIds.isEmpty {
             payload = payload.withCustomerIds(customerIds)
         }
         return payload
@@ -466,7 +454,6 @@ extension TrackingManager {
         }
 
         // Let the notification manager know the app has becom active
-        notificationsManager.applicationDidBecomeActive()
         flushingManager.applicationDidBecomeActive()
         sessionManager.applicationDidBecomeActive()
     }

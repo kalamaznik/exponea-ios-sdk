@@ -74,6 +74,9 @@ public class ExponeaInternal: ExponeaType {
 
     /// Repository responsible for fetching or uploading data to the API.
     internal var repository: RepositoryType?
+    
+    /// The manager for push registration and delivery tracking
+    internal var notificationsManager: PushNotificationManagerType?
 
     internal var telemetryManager: TelemetryManager?
     public var inAppContentBlocksManager: InAppContentBlocksManagerType?
@@ -117,10 +120,10 @@ public class ExponeaInternal: ExponeaType {
     /// push tracking is enabled, otherwise will never get called.
     public var pushNotificationsDelegate: PushNotificationManagerDelegate? {
         get {
-            return trackingManager?.notificationsManager.delegate
+            return notificationsManager?.delegate
         }
         set {
-            guard let notificationsManager = trackingManager?.notificationsManager else {
+            guard let notificationsManager = notificationsManager else {
                 Exponea.logger.log(
                     .warning,
                     message: "Cannot set push notifications delegate. " + Constants.ErrorMessages.sdkNotConfigured
@@ -216,17 +219,21 @@ public class ExponeaInternal: ExponeaType {
         return InAppContentBlockDisplayStatusStore(userDefaults: userDefaults)
     }()
 
+    internal var isAppForeground: Bool = false
+
     // MARK: - Init -
 
     /// The initialiser is internal, so that only the singleton can exist when used in production.
     internal init() {
         Exponea.logger.logMessage("⚙️ Starting ExponeaSDK, version \(Exponea.version).")
+        registerApplicationStateListener()
     }
 
     deinit {
         if !Exponea.isBeingTested {
             Exponea.logger.log(.error, message: "Exponea has deallocated. This should never happen.")
         }
+        unregisterApplicationStateListener()
     }
 
     internal func sharedInitializer(configuration: Configuration) {
@@ -293,6 +300,18 @@ public class ExponeaInternal: ExponeaType {
                            trackingConsentManager: trackingConsentManager
                         )
                         self.inAppMessagesManager = inAppMessagesManager
+                        let notificationsManager = PushNotificationManager(
+                            trackingConsentManager: trackingConsentManager,
+                            trackingManager: trackingManager,
+                            swizzlingEnabled: repository.configuration.automaticPushNotificationTracking,
+                            requirePushAuthorization: repository.configuration.requirePushAuthorization,
+                            appGroup: repository.configuration.appGroup,
+                            tokenTrackFrequency: repository.configuration.tokenTrackFrequency,
+                            currentPushToken: database.currentCustomer.pushToken,
+                            lastTokenTrackDate: database.currentCustomer.lastTokenTrackDate,
+                            urlOpener: UrlOpener()
+                        )
+                        self.notificationsManager = notificationsManager
                     },
                     userDefaults: userDefaults,
                     onEventCallback: { type, event in
@@ -361,6 +380,7 @@ internal extension ExponeaInternal {
         let inAppMessagesManager: InAppMessagesManagerType
         let appInboxManager: AppInboxManagerType
         let inAppContentBlocksManager: InAppContentBlocksManagerType
+        let notificationsManager: PushNotificationManagerType
     }
 
     typealias CompletionHandler<T> = ((Result<T>) -> Void)
@@ -378,7 +398,8 @@ internal extension ExponeaInternal {
             let trackingConsentManager = trackingConsentManager,
             let inAppMessagesManager = inAppMessagesManager,
             let inAppContentBlocksManager = inAppContentBlocksManager,
-            let appInboxManager = appInboxManager else {
+            let appInboxManager = appInboxManager,
+            let notificationsManager = notificationsManager else {
                 Exponea.logger.log(.error, message: "Some dependencies are not configured")
                 throw ExponeaError.notConfigured
         }
@@ -390,7 +411,8 @@ internal extension ExponeaInternal {
             trackingConsentManager: trackingConsentManager,
             inAppMessagesManager: inAppMessagesManager,
             appInboxManager: appInboxManager,
-            inAppContentBlocksManager: inAppContentBlocksManager
+            inAppContentBlocksManager: inAppContentBlocksManager,
+            notificationsManager: notificationsManager
         )
     }
 
@@ -447,6 +469,47 @@ internal extension ExponeaInternal {
             }
         }
     }
+
+    func registerApplicationStateListener() {
+        onMain {
+            self.isAppForeground = UIApplication.shared.applicationState == .active
+        }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    func unregisterApplicationStateListener() {
+        self.isAppForeground = false
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    @objc func applicationDidBecomeActive() {
+        self.isAppForeground = true
+    }
+
+    @objc func applicationDidEnterBackground() {
+        self.isAppForeground = false
+    }
+
 }
 
 // MARK: - Public -

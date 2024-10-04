@@ -72,10 +72,10 @@ class AppDelegate: ExponeaAppDelegate {
     }
 
     func application(
-        _ app: UIApplication,
-        open url: URL,
-        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-    ) -> Bool {
+           _ app: UIApplication,
+           open url: URL,
+           options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+       ) -> Bool {
         if let components = URLComponents(url: url, resolvingAgainstBaseURL: false), components.scheme == "exponea" {
             if let type = DeeplinkType(input: url.absoluteString) {
                 DeeplinkManager.manager.setDeeplinkType(type: type)
@@ -167,5 +167,16 @@ class InAppDelegate: InAppMessageActionDelegate {
         } else {
             Exponea.shared.trackInAppMessageClose(message: message, isUserInteraction: false)
         }
+    }
+
+    func inAppMessageShown(message: ExponeaSDK.InAppMessage) {
+        Exponea.logger.log(.verbose, message: "In app message \(message.name) has been shown")
+    }
+
+    func inAppMessageError(message: ExponeaSDK.InAppMessage?, errorMessage: String) {
+        Exponea.logger.log(
+            .verbose,
+            message: "Error occurred '\(errorMessage)' while showing in app message \(message?.name ?? "<no_name>")"
+        )
     }
 }

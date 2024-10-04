@@ -66,6 +66,48 @@ Exponea.shared.inAppContentBlocksManager?.refreshCallback = { [weak self] indexP
 >
 > Always us descriptive, human-readable placeholder IDs. They are tracked as an event property and can be used for analytics within Engagement.
 
+### Add a Carousel View
+
+Get a carousel view for the specified `placeholderId` with default configuration:
+
+```swift
+ let carouselView = CarouselInAppContentBlockView(placeholder: "placeholderId")
+```
+
+Optionally, you can configure the carousel view's maximum number of messages to display, custom height, and scroll delay to fit your requirements:
+
+```swift
+ let carouselView = CarouselInAppContentBlockView(
+        placeholder: "placeholderId",
+        maxMessagesCount: 5, // max count of visible content blocks; 0 for show all; default value is 0
+        customHeight: 200, // nil for autoheight; default value is nil
+        scrollDelay: 5 // delay in seconds between automatic scroll; 0 for no scroll; default value is 3
+    )
+```
+
+Then, place the placeholder view at the desired location by adding it to your layout:
+
+```swift
+view.addSubview(carouselView)
+```
+
+Finally, call the following methods in the following places for correct behavior:
+
+Inside `viewDidLoad()`/`loadView()` in your view controller:
+```swift
+carouselView.reload()
+```
+
+Inside `deinit`:
+```swift
+carouselView.release()
+```
+
+Inside `viewWillAppear`:
+```swift
+carouselView.continueWithTimer()
+```
+
 ## Tracking
 
 The SDK automatically tracks `banner` events for in-app content blocks with the following values for the `action` event property:
@@ -96,6 +138,35 @@ Exponea.shared.inAppContentBlocksManager?.prefetchPlaceholdersWithIds(ids: ["pla
 ```
 
 This must be done after SDK [initialization](https://documentation.bloomreach.com/engagement/docs/ios-sdk-setup#initialize-the-sdk) and after calling `anonymize` or `identifyCustomer`. Prefetching should not be done at any other time.
+
+### Handle Carousel Presentation Status
+
+If you need to access additional information about content blocks displayed in a carousel, you can use the following methods:
+
+```swift
+// returns complete InAppContentBlock structure of shown content block or null
+let blockName = carouselView.getShownContentBlock()?.message?.name
+// returns zero-base index of shown content block or -1 for empty list
+let index = carouselView.getShownIndex()
+// returns count of content blocks available for user
+let count = carouselView.getShownCount()
+```
+
+You can register a `onMessageShown` or `onMessageChanged` callback to a carousel view instance to retrieve information for each update.
+
+```swift
+// This is triggered on each scroll so 'contentBlock' parameter represents currently shown content block
+carouselView.onMessageShown = { message in
+    print(message.index) // so as 'index' represents position index of currently shown content block 
+    print(message.placeholderId)
+}
+
+// This is triggered after 'reload' or if a content block is removed because interaction has been done
+carouselView.onMessageChanged = { data in
+    print("ON MESSAGE CHANGED")
+    print(data)
+}    
+```
 
 ### Defer In-App Content Blocks Loading
 
@@ -136,9 +207,11 @@ placeholderView.contentReadyCompletion = { [weak self] contentLoaded in
 
 ### Customize Action Behavior
 
-When an in-app content block action (show, click, close, error) is performed, by default, the SDK tracks the appropriate event and, in case of a button click, opens a link. 
+When an in-app content block action (show, click, close, error) is performed, by default, the SDK tracks the appropriate event and, in case of a button click, opens a link. It's possible to customize this behavior.
 
-You can override or customize this behavior by setting `behaviourCallback` on the `StaticInAppContentBlockView`.
+#### Static View
+
+You can override or customize the default action behavior by setting `behaviourCallback` on the `StaticInAppContentBlockView`.
 
 ```swift
 // it is recommended to postpone message load if `onMessageShown` usage is crucial for you
@@ -215,6 +288,62 @@ class CustomInAppContentBlockCallback: InAppContentBlockCallbackType {
 > 📘
 >
 > Refer to [InAppContentBlocksViewController](https://github.com/exponea/exponea-ios-sdk/blob/main/ExponeaSDK/Example/Views/InAppContentBlocks/InAppContentBlocksViewController.swift) in the [example app](https://documentation.bloomreach.com/engagement/docs/ios-sdk-example-app) for a working example.
+
+#### Carousel View
+
+You can configure the action behavior for a `CarouselInAppContentBlockView` through `contentBlockCarouselCallback` by setting the `trackActions` and `overrideDefaultBehavior` flags.
+
+##### trackActions
+
+- Default value: `true`
+- If `false`, events "close" and "click" on banners won't be tracked by the SDK. You can add your custom behavior via `customContentBlockCarouselCallback` (see example [below](#customcontentblockcarouselcallback)).
+
+```swift
+carousel.contentBlockCarouselCallback.trackActions = false
+```
+
+##### overrideDefaultBehavior
+
+- Default value: `false`
+- If `true`, deep links and universal links won't be opened. You can add your custom behavior via `customContentBlockCarouselCallback` (see example [below](#customcontentblockcarouselcallback)).
+
+##### customContentBlockCarouselCallback
+
+You can add your custom behavior by setting `customContentBlockCarouselCallback` on the `CarouselInAppContentBlockView`:
+
+```swift
+CarouselInAppContentBlockView(placeholder: "example_carousel", customContentBlockCarouselCallback: CustomCarouselCallback())
+```
+
+The callback behavior object must implement `ContentBlockCarouselCallbackType`.
+
+```swift
+public class CustomCarouselCallback: ContentBlockCarouselCallbackType {
+
+    public var overrideDefaultBehavior: Bool = false
+    public var trackActions: Bool = true
+
+    public func onMessageShown(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse) {
+        // space for custom implementation
+    }
+
+    public func onNoMessageFound(placeholderId: String) {
+        // space for custom implementation
+    }
+
+    public func onError(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse?, errorMessage: String) {
+        // space for custom implementation
+    }
+
+    public func onCloseClicked(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse) {
+        // space for custom implementation
+    }
+
+    public func onActionClickedSafari(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse, action: ExponeaSDK.InAppContentBlockAction) {
+        // space for custom implementation
+    }
+}
+```
 
 ### Override Button Action Type in HTML Message
 
@@ -348,6 +477,50 @@ class CustomView: UIViewController, InAppCbViewDelegate {
     placeholder.invokeActionClick(actionUrl: actionUrl)
 }
 ```
+### Customize Carousel View Filtration and Sorting
+
+A carousel view filters available content blocks in the same way as a placeholder view:
+
+- The content block must meet the `Display` setting configured in the Engagement web app
+- The content must be valid and supported by the SDK
+
+The order in which content blocks are displayed is determined by:
+
+1. By the `Priority` setting, descending
+2. By the `Name`, ascending (alphabetically)
+
+You can extend `CarouselInAppContentBlockView` to override methods like `func filterContentBlocks(placeholder: String, continueCallback: TypeBlock<[InAppContentBlockResponse]>?, expiredCompletion: EmptyBlock?)` and `func sortContentBlocks(data: [StaticReturnData]) -> [StaticReturnData]`. Refer to [`InAppContentBlockCarouselViewController`](https://github.com/exponea/exponea-ios-sdk/blob/main/ExponeaSDK/Example/Views/InAppContentBlocks/InAppContentBlockCarouselViewController.swift) in the [example app](https://documentation.bloomreach.com/engagement/docs/ios-sdk-example-app) for an example implementation ()`CustomCarouselView`).
+
+```swift
+class CustomCarouselView: CarouselInAppContentBlockView {
+    override func filterContentBlocks(placeholder: String, continueCallback: TypeBlock<[InAppContentBlockResponse]>?, expiredCompletion: EmptyBlock?) {
+        super.filterContentBlocks(placeholder: placeholder) { data in
+            let customFilter = data.filter { !$0.name.contains("test") } // custom filter
+            continueCallback?(customFilter) // data passed through this callback will be applied
+        } expiredCompletion: {
+            expiredCompletion?() // If you want to log expired messages or something, you can put it to this place
+        }
+    }
+
+    override func sortContentBlocks(data: [StaticReturnData]) -> [StaticReturnData] {
+        let origin = super.sortContentBlocks(data: data) // our filter + your update
+        return origin.sorted(by: { $0.tag < $1.tag })
+        
+        ========= OR =========
+        
+        return data.sorted(by: { $0.tag < $1.tag }) // just your filter update
+    }
+}
+```
+
+> ❗️
+>
+> A carousel view accepts the results from the filtration and sorting implementations. Ensure that you return all wanted items as result from your implementations to avoid any missing items.
+
+> ❗️
+>
+> A carousel view can be configured with `maxMessagesCount`. Any value higher than zero applies a maximum number of content blocks displayed, independently of the number of results from filtration and sorting methods. So if you return 10 items from filtration and sorting method but `maxMessagesCount` is set to 5 then only first 5 items from your results.
+
 
 ## Troubleshooting
 

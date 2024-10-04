@@ -7,6 +7,61 @@ parentDocSlug: ios-sdk
 ---
 
 ## Release Notes
+## Release Notes for 2.28.0
+#### August 01, 2024
+* Features
+  * ContentBlockCarouselCallback extended with additional callback methods.
+  * Adds an improvement ensuring that In-App Messages are only fetched while the app is in the foreground.
+  * InAppContentBlock.Content struct exposed to have public constructor.
+  * PersonalizedInAppContentBlockResponse struct exposed to have public constructor.
+  * Tracking of campaign/clicks event updated only for cases when xnpe_cmp is present, described more deeply in documentation.
+  * AppInboxListViewController extended with onItemClicked callback.
+  * Carousel documentation updated.
+* Bug Fixes
+  * Fixed: InAppContentBlock deserialisation now able to handle NIL.
+  * Fixed: Crash caused by calling track events for not configured SDK from multiple threads fixed by adding atomicity to actionBlocks array in ExpoInitManager.
+  * Fixed: Carousel timer inconsistency for next message after resuming from action.
+  * Fixed: Duplicity of App Inbox event_type in events - removed from show/click/etc. event.
+  * Fixed: Missing UTM params added for HTML App Inbox message markAsRead and trackOpen.
+  * Fixed: Possible runtime crash caused by not initialised Tracking manager fixed.
+
+
+## Release Notes for 2.27.1
+#### July 01, 2024
+* Fixed:
+  * Fixes an issue with wrong minimal iOS version (11 instead of 13 as should be) for SPM causing build error
+
+
+## Release Notes for 2.27.0
+#### June 27, 2024
+* Added:
+  * Adds support for multiple In-App Content Blocks in the same placeholder through `InAppContentBlockCarouselView`. The SDK will loop through the content blocks one at a time in order of the configured Priority.
+  * Adds `inAppMessageShown` and `inAppMessageError` methods to `InAppMessageCallback` to improve support for customized In-App Message behavior.
+  * Increases the minimum required iOS version to 13.
+  * Adds support for newer Swift versions in Podspec.
+* Fixed:
+  * Fixes an issue where iPhone 15 devices would not be recognized in tracked events.
+  * Fixes a broken README link and outdated info in the Podspec.
+
+
+## Release Notes for 2.26.2
+#### June 19, 2024
+* Features
+  * Segmentation API documentation improvements
+* Bug Fixes
+  * Fixed: SDK Privacy manifest value is assigned under wrong key
+  * Fixed: App Inbox HTML message ignore data-actiontype parameter for action URL
+  * Fixed: In-app content block filtration flag and filter out valid messages without image as images with corrupted image
+
+
+## Release Notes for 2.26.1
+#### May 03, 2024
+* Bug Fixes
+  * Fixed: In-app content block track dual show event
+  * Fixed: In-app message dismiss callback is not called in some specific case
+  * Fixed: Generic view in-app content block has default padding on the bottom
+
+
 ## Release Notes for 2.26.0
 #### April 26, 2024
 * Features

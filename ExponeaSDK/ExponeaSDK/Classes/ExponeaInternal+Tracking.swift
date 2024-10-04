@@ -276,11 +276,11 @@ extension ExponeaInternal {
             guard dependencies.configuration.authorization != Authorization.none else {
                 throw ExponeaError.authorizationInsufficient
             }
-            // Do the actual tracking
-            var properties = data.trackingData
-            properties["platform"] = .string("ios")
             // url and payload is required for campaigns, but missing in notifications
-            if data.url != nil && data.payload != nil {
+            if data.isValid {
+                // Do the actual tracking
+                var properties = data.trackingData
+                properties["platform"] = .string("ios")
                 try dependencies.trackingManager.track(.campaignClick, with: [.properties(properties)])
             }
             if dependencies.configuration.automaticSessionTracking {
@@ -319,7 +319,7 @@ extension ExponeaInternal {
             return
         }
         executeSafelyWithDependencies { dependencies in
-            dependencies.trackingManager.notificationsManager.handlePushOpened(
+            dependencies.notificationsManager.handlePushOpened(
                 userInfoObject: userInfo as AnyObject?,
                 actionIdentifier: actionIdentifier
             )
@@ -335,7 +335,7 @@ extension ExponeaInternal {
             return
         }
         executeSafelyWithDependencies { dependencies in
-            dependencies.trackingManager.notificationsManager.handlePushOpenedWithoutTrackingConsent(
+            dependencies.notificationsManager.handlePushOpenedWithoutTrackingConsent(
                 userInfoObject: userInfo as AnyObject?,
                 actionIdentifier: actionIdentifier
             )
@@ -345,14 +345,14 @@ extension ExponeaInternal {
     /// Handles push notification token registration - compared to trackPushToken respects requirePushAuthorization
     public func handlePushNotificationToken(token: String) {
         executeSafelyWithDependencies { dependencies in
-            dependencies.trackingManager.notificationsManager.handlePushTokenRegistered(token: token)
+            dependencies.notificationsManager.handlePushTokenRegistered(token: token)
         }
     }
 
     /// Handles push notification token registration - compared to trackPushToken respects requirePushAuthorization
     public func handlePushNotificationToken(deviceToken: Data) {
         executeSafelyWithDependencies { dependencies in
-            dependencies.trackingManager.notificationsManager.handlePushTokenRegistered(
+            dependencies.notificationsManager.handlePushTokenRegistered(
                 dataObject: deviceToken as AnyObject?
             )
         }
