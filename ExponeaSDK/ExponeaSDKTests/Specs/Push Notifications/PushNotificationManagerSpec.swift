@@ -98,6 +98,33 @@ final class PushNotificationManagerSpec: QuickSpec {
             )
         }
 
+        func getConfiguration() -> Configuration {
+            return try! Configuration(
+                projectToken: "mock-project-token",
+                projectMapping: nil,
+                authorization: .token("mock-token"),
+                baseUrl: nil,
+                appGroup: "mock-app-group",
+                defaultProperties: nil
+            )
+        }
+
+        func saveConfiguration() {
+            getConfiguration().saveToUserDefaults()
+        }
+
+        func getCustomerIds() -> [String: String] {
+            return ["uuid": "mock-uuid"]
+        }
+
+        func saveCustomerIds() {
+            guard let userDefaults = UserDefaults(suiteName: "mock-app-group"),
+                let data = try? JSONEncoder().encode(getCustomerIds()) else {
+                return
+            }
+            userDefaults.set(data, forKey: Constants.General.lastKnownCustomerIds)
+        }
+
         beforeEach {
             UserDefaults.standard.removePersistentDomain(forName: "mock-app-group")
             trackingManager = MockTrackingManager(
@@ -125,6 +152,17 @@ final class PushNotificationManagerSpec: QuickSpec {
                     return nil
                 }
                 return NotificationData.deserialize(from: delivered[0])!
+            }
+
+            func getFirstStoredNotificationEvent() -> EventTrackingObject? {
+                let userDefaults = UserDefaults(suiteName: "mock-app-group")!
+                let data = userDefaults.array(
+                    forKey: ExponeaSDK.Constants.General.deliveredPushEventUserDefaultsKey
+                ) as? [Data]
+                guard let delivered = data, !delivered.isEmpty else {
+                    return nil
+                }
+                return EventTrackingObject.deserialize(from: delivered[0])!
             }
 
             it("should do nothing with no stored notification") {
@@ -311,7 +349,7 @@ final class PushNotificationManagerSpec: QuickSpec {
                     let storedNotification = getFirstStoredNotification()!
                     pushManager.checkForDeliveredPushMessages()
                     let expectedTrackeEvent = testCase.expectedTrackedEvent(storedNotification.timestamp)
-                    if (expectedTrackeEvent == nil) {
+                    if expectedTrackeEvent == nil {
                         expect(trackingManager.trackedEvents.count).to(equal(0))
                     } else {
                         expect(trackingManager.trackedEvents.count).to(equal(1))
@@ -320,6 +358,40 @@ final class PushNotificationManagerSpec: QuickSpec {
                         ))
                     }
                     expect(getFirstStoredNotification()).to(beNil())
+                }
+                it("should track notification event with \(testCase.name)") {
+                    saveConfiguration()
+                    saveCustomerIds()
+                    let service = ExponeaNotificationService(appGroup: "mock-app-group")
+                    let notificationData = NotificationData.deserialize(
+                        attributes: testCase.userInfo["attributes"] as? [String: Any] ?? [:],
+                        campaignData: testCase.userInfo["url_params"] as? [String: Any] ?? [:],
+                        consentCategoryTracking: testCase.userInfo["consent_category_tracking"] as? String ?? nil,
+                        hasTrackingConsent: GdprTracking.readTrackingConsentFlag(testCase.userInfo["has_tracking_consent"])
+                    ) ?? NotificationData()
+                    service.saveNotificationEventsForLaterTracking(DeliveredNotificationTracker.generateTrackingObjects(
+                        configuration: getConfiguration(),
+                        customerIds: getCustomerIds(),
+                        notification: notificationData
+                    ))
+                    let storedNotification = getFirstStoredNotificationEvent()
+                    pushManager.checkForDeliveredPushMessages()
+                    let expectedTrackeEvent = testCase.expectedTrackedEvent(storedNotification?.timestamp ?? 0)
+                    if expectedTrackeEvent == nil {
+                        expect(storedNotification).to(beNil())
+                        expect(trackingManager.trackedEvents.count).to(equal(0))
+                    } else {
+                        expect(storedNotification).toNot(beNil())
+                        guard let storedNotification = storedNotification else {
+                            return
+                        }
+                        expect(trackingManager.trackedEvents.count).to(equal(1))
+                        expect(trackingManager.trackedEvents[0]).to(equal(
+                            testCase.expectedTrackedEvent(storedNotification.timestamp)
+                        ))
+                    }
+                    // stored notification events has to be removed after 'pushManager.checkForDeliveredPushMessages()'
+                    expect(getFirstStoredNotificationEvent()).to(beNil())
                 }
             }
         }
@@ -590,6 +662,7 @@ final class PushNotificationManagerSpec: QuickSpec {
                     tokenTrackFrequency: .onTokenChange,
                     lastTokenTrackDate: Date(timeIntervalSince1970: Date().timeIntervalSince1970 - 60 * 60 * 24 + 10)
                 )
+                trackingManager.clearCalls()
                 pushManager.handlePushTokenRegistered(dataObject: mockTokenData)
                 expect(trackingManager.trackedEvents).to(equal([
                     MockTrackingManager.TrackedEvent(
@@ -603,7 +676,7 @@ final class PushNotificationManagerSpec: QuickSpec {
                 createPushManager(
                     requirePushAuthorization: true,
                     currentToken: "mock-token",
-                    tokenTrackFrequency: .onTokenChange,
+                    tokenTrackFrequency: .daily,
                     lastTokenTrackDate: Date(timeIntervalSince1970: Date().timeIntervalSince1970 - 60 * 60 * 24 + 10)
                 )
                 expect(trackingManager.trackedEvents).to(beEmpty())
@@ -670,6 +743,60 @@ final class PushNotificationManagerSpec: QuickSpec {
                     )
                 ]))
             }
+
+            it("should compare tracked token events successfully") {
+                let authorizedToken = MockTrackingManager.TrackedEvent(
+                    type: .registerPushToken,
+                    data: [.pushNotificationToken(token: "authorized-token-1", authorized: true)]
+                )
+                let nonAuthorizedToken = MockTrackingManager.TrackedEvent(
+                    type: .registerPushToken,
+                    data: [.pushNotificationToken(token: "", authorized: false)]
+                )
+                expect(authorizedToken).toNot(equal(nonAuthorizedToken))
+                let authorizedTokenAsArray = [authorizedToken]
+                let nonAuthorizedTokenAsArray = [nonAuthorizedToken]
+                expect(authorizedTokenAsArray).toNot(equal(nonAuthorizedTokenAsArray))
+                expect(authorizedTokenAsArray).to(equal(authorizedTokenAsArray))
+                expect(nonAuthorizedTokenAsArray).to(equal(nonAuthorizedTokenAsArray))
+            }
+
+            it("should track token if authorization swaps") {
+                // first run, authorization is given, app starts
+                UNAuthorizationStatusProvider.current = MockUNAuthorizationStatusProviding(status: .authorized)
+                createPushManager(
+                    requirePushAuthorization: true,
+                    currentToken: "authorized-token-1",
+                    tokenTrackFrequency: .everyLaunch,
+                    lastTokenTrackDate: Date(timeIntervalSince1970: 1)
+                )
+                expect(trackingManager.trackedEvents).to(equal([
+                    MockTrackingManager.TrackedEvent(
+                        type: .registerPushToken,
+                        data: [.pushNotificationToken(token: "authorized-token-1", authorized: true)]
+                    )
+                ]))
+                trackingManager.clearCalls()
+                // second run, authorization is denied, app goes to foreground
+                UNAuthorizationStatusProvider.current = MockUNAuthorizationStatusProviding(status: .denied)
+                pushManager.applicationDidBecomeActive()
+                expect(trackingManager.trackedEvents).to(equal([
+                    MockTrackingManager.TrackedEvent(
+                        type: .registerPushToken,
+                        data: [.pushNotificationToken(token: nil, authorized: false)]
+                    )
+                ]))
+                trackingManager.clearCalls()
+                // third run, authorization is given back, app goes to foreground again
+                UNAuthorizationStatusProvider.current = MockUNAuthorizationStatusProviding(status: .authorized)
+                pushManager.applicationDidBecomeActive()
+                expect(trackingManager.trackedEvents).to(equal([
+                    MockTrackingManager.TrackedEvent(
+                        type: .registerPushToken,
+                        data: [.pushNotificationToken(token: "authorized-token-1", authorized: true)]
+                    )
+                ]))
+            }
         }
 
         describe("saving opened push for later") {
@@ -726,8 +853,8 @@ final class PushNotificationManagerSpec: QuickSpec {
                 createPushManager(
                     requirePushAuthorization: false,
                     currentToken: "mock-token",
-                    tokenTrackFrequency: .onTokenChange,
-                    lastTokenTrackDate: Date(timeIntervalSince1970: 1)
+                    tokenTrackFrequency: .daily,
+                    lastTokenTrackDate: Date()
                 )
                 expect(
                     UserDefaults(suiteName: ExponeaSDK.Constants.General.userDefaultsSuite)?
@@ -797,24 +924,6 @@ final class PushNotificationManagerSpec: QuickSpec {
                                              trigger: nil)
             }
 
-            func saveConfiguration() {
-                try! Configuration(
-                    projectToken: "mock-project-token",
-                    projectMapping: nil,
-                    authorization: .token("mock-token"),
-                    baseUrl: nil,
-                    appGroup: "mock-app-group",
-                    defaultProperties: nil
-                ).saveToUserDefaults()
-            }
-
-            func saveCustomerIds() {
-                guard let userDefaults = UserDefaults(suiteName: "mock-app-group"),
-                    let data = try? JSONEncoder().encode(["uuid": JSONValue.string("mock-uuid")]) else {
-                    return
-                }
-                userDefaults.set(data, forKey: Constants.General.lastKnownCustomerIds)
-            }
             let testCases: [NotificationEventsOrderTestCase] = [
                 NotificationEventsOrderTestCase(
                     name: "sent -> delivered -> opened",

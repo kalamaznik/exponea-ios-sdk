@@ -201,7 +201,7 @@ class ExponeaSpec: QuickSpec {
                     exponea.configure(plistName: "ExponeaConfig")
                     let delegate = MockDelegate()
                     // just initialize the notifications manager to clear the swizzling error
-                    _ = exponea.trackingManager?.notificationsManager
+                    _ = exponea.notificationsManager
                     logger.messages.removeAll()
                     exponea.pushNotificationsDelegate = delegate
                     expect(exponea.pushNotificationsDelegate).to(be(delegate))
@@ -444,6 +444,36 @@ class ExponeaSpec: QuickSpec {
                             "apple_push_notification_id": .string("token")
                         ])]))
                     expect(customerUpdates[2].projectToken).to(equal("other-mock-token"))
+                }
+
+                it("should switch projects with anonymize and store them localy") {
+                    let appGroup = "MockAppGroup"
+                    let exponea = ExponeaInternal()
+                    Exponea.shared = exponea
+                    Exponea.shared.configure(
+                        Exponea.ProjectSettings(projectToken: "mock-token", authorization: .token("mock-token")),
+                        pushNotificationTracking: .enabled(appGroup: appGroup),
+                        flushingSetup: Exponea.FlushingSetup(mode: .manual)
+                    )
+                    guard let configuration = Configuration.loadFromUserDefaults(appGroup: appGroup) else {
+                        fail("Configuration has not been loaded for \(appGroup)")
+                        return
+                    }
+                    expect(configuration.projectToken).to(equal("mock-token"))
+                    expect(configuration.authorization).to(equal(.token("mock-token")))
+                    Exponea.shared.anonymize(
+                        exponeaProject: ExponeaProject(
+                            projectToken: "other-mock-token",
+                            authorization: .token("other-mock-token")
+                        ),
+                        projectMapping: nil
+                    )
+                    guard let configurationAfterAnonymize = Configuration.loadFromUserDefaults(appGroup: appGroup) else {
+                        fail("Configuration has not been loaded after anonymize for \(appGroup)")
+                        return
+                    }
+                    expect(configurationAfterAnonymize.projectToken).to(equal("other-mock-token"))
+                    expect(configurationAfterAnonymize.authorization).to(equal(.token("other-mock-token")))
                 }
             }
         }

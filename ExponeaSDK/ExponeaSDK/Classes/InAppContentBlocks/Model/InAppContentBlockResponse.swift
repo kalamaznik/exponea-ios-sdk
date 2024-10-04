@@ -52,10 +52,14 @@ public struct InAppContentBlocksDataResponse: Codable {
 public struct InAppContentBlockResponse: Codable {
 
     public struct DateFilter: Codable {
-        let enabled: Bool
-        let fromDate: UInt?
-        let toDate: UInt?
-
+        public let enabled: Bool
+        public let fromDate: UInt?
+        public let toDate: UInt?
+        public init(enabled: Bool, fromDate: UInt?, toDate: UInt?) {
+            self.enabled = enabled
+            self.fromDate = fromDate
+            self.toDate = toDate
+        }
         enum CodingKeys: String, CodingKey {
             case enabled
             case fromDate = "from_date"
@@ -76,8 +80,6 @@ public struct InAppContentBlockResponse: Codable {
     public var trackingConsentCategory: String?
     public let placeholders: [String]
     @CodableIgnored
-    public var displayState: InAppContentBlocksDisplayStatus? = .init(displayed: nil, interacted: nil)
-    @CodableIgnored
     public var personalizedMessage: PersonalizedInAppContentBlockResponse?
     @CodableIgnored
     public var status: InAppContentBlocksDisplayStatus?
@@ -87,6 +89,7 @@ public struct InAppContentBlockResponse: Codable {
     public var tags: Set<Int>? = []
     @CodableIgnored
     public var indexPath: IndexPath?
+    public var isCorruptedImage = true
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -110,8 +113,11 @@ public struct InAppContentBlockResponse: Codable {
         self.content = try container.decodeIfPresent(Content.self, forKey: .content)
         self.trackingConsentCategory = try container.decodeIfPresent(String.self, forKey: .trackingConsentCategory)
         self.placeholders = try container.decode([String].self, forKey: .placeholders)
-        let frequency = try container.decode(String.self, forKey: .frequency)
-        self.frequency = .init(value: frequency)
+        if let frequency = try container.decodeIfPresent(String.self, forKey: .frequency) {
+            self.frequency = .init(value: frequency)
+        } else {
+            self.frequency = .always
+        }
     }
 
     public init(
@@ -151,4 +157,10 @@ public enum InAppContentBlocksFrequency: String {
 public struct InAppContentBlocksDisplayStatus: Codable, Equatable {
     let displayed: Date?
     let interacted: Date?
+}
+
+internal extension InAppContentBlockResponse {
+    func describe() -> String {
+        return "ID:\(id), Name:\(name)"
+    }
 }

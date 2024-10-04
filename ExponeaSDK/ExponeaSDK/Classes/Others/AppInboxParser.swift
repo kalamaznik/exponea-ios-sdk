@@ -75,10 +75,17 @@ final class AppInboxParser {
                 ))
                 htmlContent.actions.forEach { htmlAction in
                     let actionType: MessageItemActionType
-                    if htmlAction.actionUrl.hasPrefix("http://") || htmlAction.actionUrl.hasPrefix("https://") {
+                    switch htmlAction.actionType {
+                    case .browser:
                         actionType = .browser
-                    } else {
+                    case .deeplink:
                         actionType = .deeplink
+                    case .unknown:
+                        if htmlAction.actionUrl.hasPrefix("http://") || htmlAction.actionUrl.hasPrefix("https://") {
+                            actionType = .browser
+                        } else {
+                            actionType = .deeplink
+                        }
                     }
                     actions.append(MessageItemAction(
                         action: actionType.rawValue,
@@ -88,13 +95,13 @@ final class AppInboxParser {
                 }
             }
             var trackingData: [String: JSONValue] = [:]
-            let attributesWithNils = normalized["attributes"] as? [String: Any?] ?? [:]
-            let attributesWithoutNils = attributesWithNils.filter { $0.value != nil }.mapValues { $0! }
-            let campaignData = normalized["url_params"] as? CampaignData
-            trackingData.merge(JSONValue.convert(attributesWithoutNils)) { _, new in new }
-            if let campaignTrackingData = campaignData?.trackingData {
-                trackingData.merge(campaignTrackingData) { _, new in new }
-            }
+            let attributes = (normalized["attributes"] as? [String: Any?] ?? [:])
+                .filter { $0.value != nil }
+                .filter { $0.key != "event_type" }
+                .mapValues { $0! }
+            let campaignData = CampaignData(source: normalized["url_params"] as? [String: Any?] ?? [:])
+            trackingData.merge(JSONValue.convert(attributes)) { _, new in new }
+            trackingData.merge(campaignData.trackingData) { _, new in new }
             return MessageItemContent(
                 imageUrl: normalized["image"] as? String,
                 title: normalized["title"] as? String,

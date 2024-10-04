@@ -139,7 +139,7 @@ public extension Exponea {
 
 public extension ExponeaInternal {
     // swiftlint:disable:next line_length
-    @available(*, deprecated, message: "Automatic push notification tracking is deprecated. Find more information in the documentation. https://github.com/exponea/exponea-ios-sdk/blob/develop/Documentation/PUSH.md")
+    @available(*, deprecated, message: "Automatic push notification tracking is deprecated. Find more information in the documentation. https://github.com/exponea/exponea-ios-sdk/blob/main/Documentation/PUSH.md")
     func configure(
         _ projectSettings: Exponea.ProjectSettings,
         automaticPushNotificationTracking: Exponea.AutomaticPushNotificationTracking,
@@ -213,7 +213,6 @@ public extension ExponeaInternal {
                     allowDefaultCustomerProperties: allowDefaultCustomerProperties ?? true,
                     advancedAuthEnabled: advancedAuthEnabled
                 )
-                
                 self.configure(with: configuration)
                 self.pushNotificationsDelegate = pushNotificationTracking.delegate
                 self.flushingMode = flushingSetup.mode
@@ -222,7 +221,8 @@ public extension ExponeaInternal {
                         self.pushNotificationSelfCheck = PushNotificationSelfCheck(
                             trackingManager: dependencies.trackingManager,
                             flushingManager: dependencies.flushingManager,
-                            repository: dependencies.repository
+                            repository: dependencies.repository,
+                            notificationsManager: dependencies.notificationsManager
                         )
                         self.pushNotificationSelfCheck?.start()
                     }
@@ -232,7 +232,7 @@ public extension ExponeaInternal {
                 Exponea.logger.log(.error, message: "Can't create configuration: \(error.localizedDescription)")
             }
         }
-        
+
         if onInitSucceededCallBack != nil {
             initializedQueue.addOperation {
                 taskBlock()

@@ -15,6 +15,9 @@ public enum InAppContentBlocksStatus: String, Codable {
 
 public struct Content: Codable {
     public var html: String
+    public init(html: String) {
+        self.html = html
+    }
 }
 
 public struct PersonalizedInAppContentBlockResponseData: Codable {
@@ -36,6 +39,7 @@ public struct PersonalizedInAppContentBlockResponse: Codable {
     public var ttlSeen: Date?
     @CodableIgnored
     public var tag: Int?
+    public var isCorruptedImage = false
 
     enum CodingKeys: String, CodingKey {
         case id = "id"
@@ -63,7 +67,7 @@ public struct PersonalizedInAppContentBlockResponse: Codable {
         self.content = try container.decodeIfPresent(Content.self, forKey: .content)
     }
 
-    init(
+    public init(
         id: String,
         status: InAppContentBlocksStatus,
         ttlSeconds: Int,
@@ -86,5 +90,24 @@ public struct PersonalizedInAppContentBlockResponse: Codable {
         self.contentType = contentType
         self.htmlPayload = htmlPayload
         self.ttlSeen = ttlSeen
+    }
+}
+
+extension PersonalizedInAppContentBlockResponse {
+    func describeDetailed() -> String {
+        return """
+        {
+            id: \(id),
+            status: \(status),
+            ttlSeconds: \(ttlSeconds),
+            variantId: \(String(describing: variantId)),
+            hasTrackingConsent: \(String(describing: hasTrackingConsent)),
+            variantName: \(String(describing: variantName)),
+            contentType: \(String(describing: contentType)),
+            ttlSeen: \(String(describing: ttlSeen)),
+            tag: \(String(describing: tag)),
+            isCorruptedImage: \(isCorruptedImage)
+        }
+        """
     }
 }

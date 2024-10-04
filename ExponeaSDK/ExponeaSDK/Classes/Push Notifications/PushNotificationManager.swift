@@ -36,6 +36,7 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
     private let tokenTrackFrequency: TokenTrackFrequency
     private let urlOpener: UrlOpenerType
     private var currentPushToken: String?
+    private var lastKnownPushToken: String?
     private var lastTokenTrackDate: Date
     private var pushNotificationSwizzler: PushNotificationSwizzler?
 
@@ -86,6 +87,7 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
         self.trackingManager = trackingManager
         self.tokenTrackFrequency = tokenTrackFrequency
         self.currentPushToken = currentPushToken
+        self.lastKnownPushToken = currentPushToken
         self.lastTokenTrackDate = lastTokenTrackDate ?? .distantPast
         self.urlOpener = urlOpener
         self.requirePushAuthorization = requirePushAuthorization
@@ -115,10 +117,29 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
                 UIApplication.shared.registerForRemoteNotifications()
             }
         }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
 
     deinit {
         pushNotificationSwizzler?.removeAutomaticPushTracking()
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+    
+    // MARK: App lifecycle
+    
+    @objc internal func applicationDidBecomeActive() {
+        Exponea.shared.executeSafely {
+            self.applicationDidBecomeActiveUnsafe()
+        }
     }
 
     // MARK: - Actions -
@@ -228,6 +249,7 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
     }
 
     func handlePushTokenRegisteredUnsafe(token: String) {
+        self.lastKnownPushToken = token
         UNAuthorizationStatusProvider.current.isAuthorized { authorized in
             if !self.requirePushAuthorization || authorized {
                 self.currentPushToken = token
@@ -284,18 +306,24 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
             Exponea.logger.log(.verbose, message: "No app group was setup, push delivered tracking is disabled.")
             return
         }
+        guard let userDefaults = UserDefaults(suiteName: appGroup) else {
+            Exponea.logger.log(.verbose, message: "Unable to load local storage of delivered push to track")
+            return
+        }
+        trackDeliveredPushMessages(userDefaults)
+        trackDeliveredPushEvents(userDefaults)
+    }
 
-        let userDefaults = UserDefaults(suiteName: appGroup)
-        guard let array = userDefaults?.array(forKey: Constants.General.deliveredPushUserDefaultsKey) else {
+    /// Loads received and stored Push notifications that were not tracked due to missing SDK configuration
+    internal func trackDeliveredPushMessages(_ source: UserDefaults) {
+        guard let array = source.array(forKey: Constants.General.deliveredPushUserDefaultsKey) else {
             Exponea.logger.log(.verbose, message: "No delivered push to track present in shared app group.")
             return
         }
-
         guard let dataArray = array as? [Data] else {
             Exponea.logger.log(.warning, message: "Delivered push data present in shared group but incorrect type.")
             return
         }
-
         // Process notifications
         for data in dataArray {
             guard let notification = NotificationData.deserialize(from: data) else {
@@ -304,9 +332,30 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
             }
             trackingConsentManager.trackDeliveredPush(data: notification, mode: .CONSIDER_CONSENT)
         }
-
         // Clear after all is processed
-        userDefaults?.removeObject(forKey: Constants.General.deliveredPushUserDefaultsKey)
+        source.removeObject(forKey: Constants.General.deliveredPushUserDefaultsKey)
+    }
+
+    /// Uploads track events for delivered Push notifications that were not uploaded to backend because of some problem
+    internal func trackDeliveredPushEvents(_ source: UserDefaults) {
+        guard let array = source.array(forKey: Constants.General.deliveredPushEventUserDefaultsKey) else {
+            Exponea.logger.log(.verbose, message: "No delivered push events to track in shared app group.")
+            return
+        }
+        guard let dataArray = array as? [Data] else {
+            Exponea.logger.log(.warning, message: "Delivered push events present in shared group but incorrect type.")
+            return
+        }
+        // Process notification events
+        for each in dataArray {
+            guard let notificationEvent = EventTrackingObject.deserialize(from: each) else {
+                Exponea.logger.log(.warning, message: "Cannot deserialize stored delivered push event")
+                continue
+            }
+            trackingManager.trackDeliveredPushEvent(notificationEvent)
+        }
+        // Clear after all is processed
+        source.removeObject(forKey: Constants.General.deliveredPushEventUserDefaultsKey)
     }
 
     func verifyPushStatusAndTrackPushToken() {
@@ -317,6 +366,9 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
                     self.trackCurrentPushToken(isAuthorized: authorized)
                 }
             } else {
+                if self.currentPushToken == nil {
+                    self.currentPushToken = self.lastKnownPushToken
+                }
                 self.checkForPushTokenFrequency(isAuthorized: authorized)
             }
         }
@@ -349,14 +401,17 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
             }
 
         case .onTokenChange:
-            // nothing to do
-            break
+            // Track if changed from last tracked
+            if trackingManager.customerPushToken != currentPushToken {
+                lastTokenTrackDate = .init()
+                trackCurrentPushToken(isAuthorized: authorized)
+            }
         }
     }
 }
 
 extension PushNotificationManager {
-    func applicationDidBecomeActive() {
+    func applicationDidBecomeActiveUnsafe() {
         checkForDeliveredPushMessages()
         // we don't have to check for opened pushes here, Exponea SDK was initialized so it will be tracked directly
         verifyPushStatusAndTrackPushToken()
