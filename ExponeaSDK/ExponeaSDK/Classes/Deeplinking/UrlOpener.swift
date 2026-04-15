@@ -46,7 +46,7 @@ final class UrlOpener: UrlOpenerType {
 //            continue: userActivity,
 //            restorationHandler: { _ in }
 //        ) ?? false
-        return false
+//        return false
     }
 
     private func openURLSchemeDeeplink(_ url: URL, application: UIApplication) {
