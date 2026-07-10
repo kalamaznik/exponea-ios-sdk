@@ -14,25 +14,6 @@ import ExponeaSDKShared
 // MARK: - Configuration -
 
 public extension Exponea {
-    struct ProjectSettings {
-        public let projectToken: String
-        public let authorization: Authorization
-        public let baseUrl: String
-        public let projectMapping: [EventType: [ExponeaProject]]?
-
-        public init(
-            projectToken: String,
-            authorization: Authorization,
-            baseUrl: String? = nil,
-            projectMapping: [EventType: [ExponeaProject]]? = nil
-        ) {
-            self.projectToken = projectToken
-            self.authorization = authorization
-            self.baseUrl = baseUrl ?? Constants.Repository.baseUrl
-            self.projectMapping = projectMapping
-        }
-    }
-
     struct AutomaticPushNotificationTracking {
         let enabled: Bool
         let appGroup: String?
@@ -197,12 +178,13 @@ public extension ExponeaInternal {
         flushingSetup: Exponea.FlushingSetup = Exponea.FlushingSetup.default,
         allowDefaultCustomerProperties: Bool? = nil,
         advancedAuthEnabled: Bool? = nil,
-        manualSessionAutoClose: Bool = true
+        manualSessionAutoClose: Bool = true,
+        applicationID: String? = nil
     ) {
         invokeSdkInitSafely({
             let configuration = try Configuration(
                 projectToken: projectSettings.projectToken,
-                projectMapping: projectSettings.projectMapping,
+                projectMapping: projectSettings.projectMapping as? [EventType: [ExponeaProject]],
                 authorization: projectSettings.authorization,
                 baseUrl: projectSettings.baseUrl,
                 appGroup: automaticPushNotificationTracking.appGroup,
@@ -216,7 +198,8 @@ public extension ExponeaInternal {
                 flushEventMaxRetries: flushingSetup.maxRetries,
                 allowDefaultCustomerProperties: allowDefaultCustomerProperties ?? true,
                 advancedAuthEnabled: advancedAuthEnabled,
-                manualSessionAutoClose: manualSessionAutoClose
+                manualSessionAutoClose: manualSessionAutoClose,
+                applicationID: applicationID
             )
             self.configuration = configuration
             self.pushNotificationsDelegate = automaticPushNotificationTracking.delegate
@@ -225,7 +208,7 @@ public extension ExponeaInternal {
     }
 
     func configure(
-        _ projectSettings: Exponea.ProjectSettings,
+        _ integrationConfig: any IntegrationType,
         pushNotificationTracking: Exponea.PushNotificationTracking,
         automaticSessionTracking: Exponea.AutomaticSessionTracking = .enabled(),
         defaultProperties: [String: JSONConvertible]? = nil,
@@ -233,7 +216,8 @@ public extension ExponeaInternal {
         flushingSetup: Exponea.FlushingSetup = Exponea.FlushingSetup.default,
         allowDefaultCustomerProperties: Bool? = nil,
         advancedAuthEnabled: Bool? = nil,
-        manualSessionAutoClose: Bool = true
+        manualSessionAutoClose: Bool = true,
+        applicationID: String? = nil
     ) {
         invokeSdkInitSafely {
             var willRunSelfCheck = false
@@ -241,10 +225,7 @@ public extension ExponeaInternal {
                 willRunSelfCheck = self.checkPushSetup && pushNotificationTracking.isEnabled
             }
             let configuration = try Configuration(
-                projectToken: projectSettings.projectToken,
-                projectMapping: projectSettings.projectMapping,
-                authorization: projectSettings.authorization,
-                baseUrl: projectSettings.baseUrl,
+                integrationConfig: integrationConfig,
                 appGroup: pushNotificationTracking.appGroup,
                 defaultProperties: defaultProperties,
                 inAppContentBlocksPlaceholders: inAppContentBlocksPlaceholders,
@@ -256,7 +237,8 @@ public extension ExponeaInternal {
                 flushEventMaxRetries: flushingSetup.maxRetries,
                 allowDefaultCustomerProperties: allowDefaultCustomerProperties ?? true,
                 advancedAuthEnabled: advancedAuthEnabled,
-                manualSessionAutoClose: manualSessionAutoClose
+                manualSessionAutoClose: manualSessionAutoClose,
+                applicationID: applicationID
             )
             self.configuration = configuration
             self.pushNotificationsDelegate = pushNotificationTracking.delegate
@@ -291,7 +273,8 @@ public extension ExponeaInternal {
         inAppContentBlocksPlaceholders: [String]? = nil,
         allowDefaultCustomerProperties: Bool? = nil,
         advancedAuthEnabled: Bool? = nil,
-        manualSessionAutoClose: Bool = true
+        manualSessionAutoClose: Bool = true,
+        applicationID: String? = nil
     ) {
         invokeSdkInitSafely {
             let configuration = try Configuration(
@@ -303,7 +286,8 @@ public extension ExponeaInternal {
                 inAppContentBlocksPlaceholders: inAppContentBlocksPlaceholders,
                 allowDefaultCustomerProperties: allowDefaultCustomerProperties ?? true,
                 advancedAuthEnabled: advancedAuthEnabled,
-                manualSessionAutoClose: manualSessionAutoClose
+                manualSessionAutoClose: manualSessionAutoClose,
+                applicationID: applicationID
             )
             self.configuration = configuration
             self.afterInit.setStatus(status: .configured)
@@ -330,6 +314,49 @@ public extension ExponeaInternal {
             self.configuration = configuration
         }
     }
+    
+    /// Configure the SDK with a Configuration object and optional authentication context.
+    /// Use this when you want to provide initial customer IDs and/or JWT token during configuration.
+    ///
+    /// - Parameters:
+    ///   - configuration: The SDK configuration object.
+    ///   - authContext: Optional authentication context with customer IDs and JWT token.
+    func configure(
+        with configuration: Configuration,
+        authContext: CustomerIdentity?
+    ) {
+        invokeSdkInitSafely { [weak self] in
+            self?.configuration = configuration
+            
+            // After configuration, apply auth context if provided
+            if let authContext = authContext {
+                self?.applyInitialAuthContext(authContext, configuration: configuration)
+            }
+        }
+    }
+    
+    /// Applies the initial authentication context after SDK configuration.
+    private func applyInitialAuthContext(_ authContext: CustomerIdentity, configuration: Configuration) {
+        if case .stream = configuration.integrationConfig.type, let jwt = authContext.jwtToken {
+            jwtAuthManager?.setToken(jwt)
+            Exponea.logger.log(.verbose, message: "Initial Stream JWT token applied from authContext")
+        }
+        
+        // Identify customer with provided IDs if any
+        if !authContext.customerIds.isEmpty {
+            // We use executeSafely to ensure dependencies are ready
+            executeSafely { [weak self] in
+                guard let trackingManager = self?.trackingManager else { return }
+                var data: [DataType] = [.timestamp(nil)]
+                var ids = authContext.customerIds
+                // Preserve cookie
+                ids["cookie"] = trackingManager.customerIds["cookie"]
+                data.append(.customerIds(ids))
+                try trackingManager.track(.identifyCustomer, with: data)
+                Exponea.logger.log(.verbose, message: "Initial customer identification applied from authContext")
+            }
+        }
+    }
 
     /// Initialize the configuration with a projectMapping (token mapping) for each type of event. This allows
     /// you to track events to multiple projects, even the same event to more project at once.
@@ -350,7 +377,8 @@ public extension ExponeaInternal {
         inAppContentBlocksPlaceholders: [String]? = nil,
         allowDefaultCustomerProperties: Bool? = nil,
         advancedAuthEnabled: Bool? = nil,
-        manualSessionAutoClose: Bool = true
+        manualSessionAutoClose: Bool = true,
+        applicationID: String? = nil
     ) {
         invokeSdkInitSafely {
             let configuration = try Configuration(
@@ -363,7 +391,8 @@ public extension ExponeaInternal {
                 inAppContentBlocksPlaceholders: inAppContentBlocksPlaceholders,
                 allowDefaultCustomerProperties: allowDefaultCustomerProperties ?? true,
                 advancedAuthEnabled: advancedAuthEnabled,
-                manualSessionAutoClose: manualSessionAutoClose
+                manualSessionAutoClose: manualSessionAutoClose,
+                applicationID: applicationID
             )
             self.configuration = configuration
         }

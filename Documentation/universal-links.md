@@ -1,9 +1,12 @@
 ---
-title: Universal links
-excerpt: Enable and track universal links in your app using the iOS SDK
+title: Universal links for iOS SDK
 slug: ios-sdk-universal-links
-categorySlug: integrations
-parentDocSlug: ios-sdk
+category:
+  uri: /branches/2/categories/guides/Developers
+parent:
+  uri: ios-sdk
+content:
+  excerpt: Enable and track universal links in your app using the iOS SDK
 ---
 
 Universal links allow the links you send through Engagement to open directly in your native mobile application without any redirects that would hinder your users' experience.
@@ -77,7 +80,7 @@ Universal Link parameters are automatically tracked in `session_start` events wh
 
 > ❗️
 >
-> If an existing session is resumed by opening a universal link, the resumed session is **NOT** attributed to the universal link click, and the universal link click parameters are not tracked in the `session_start` event. Session behavior is determined by the `automaticSessionTracking` and `sessionTimeout` parameters described in [SDK configuration](https://documentation.bloomreach.com/engagement/docs/ios-sdk-configuration). Please consider this in case of manual session handling or while testing universal link tracking during the development.
+> If an existing session is resumed by opening a universal link, the resumed session is **NOT** attributed to the universal link click, and the universal link click parameters are not tracked in the `session_start` event. Session behavior is determined by the `automaticSessionTracking` and `sessionTimeout` parameters described in [Configuration for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-configuration). Please consider this in case of manual session handling or while testing universal link tracking during the development.
 
 > ❗️
 >

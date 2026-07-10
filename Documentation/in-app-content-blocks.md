@@ -1,12 +1,17 @@
 ---
-title: In-app content blocks
-excerpt: Display native in-app content blocks based on definitions set up in Engagement using the iOS SDK
+title: In-app content blocks for iOS SDK
 slug: ios-sdk-in-app-content-blocks
-categorySlug: integrations
-parentDocSlug: ios-sdk-in-app-personalization
+category:
+  uri: /branches/2/categories/guides/Developers
+parent:
+  uri: ios-sdk-in-app-personalization
+content:
+  excerpt: >-
+    Display native in-app content blocks based on definitions set up in
+    Engagement using the iOS SDK
 ---
 
-In-app content blocks provide a way to display campaigns within your mobile applications that seamlessly blend with the overall app design. Unlike [in-app messages](https://documentation.bloomreach.com/engagement/docs/ios-sdk-in-app-messages) that appear as overlays or pop-ups demanding immediate attention, in-app content blocks display inline with the app's existing content.
+In-app content blocks provide a way to display campaigns within your mobile applications that seamlessly blend with the overall app design. Unlike [In-app messages for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-in-app-messages) that appear as overlays or pop-ups demanding immediate attention, in-app content blocks display inline with the app's existing content.
 
 You can strategically position placeholders for in-app content blocks within your app. You can customize the behavior and presentation to meet your specific requirements.
 
@@ -60,7 +65,7 @@ Exponea.shared.inAppContentBlocksManager?.refreshCallback = { [weak self] indexP
 
 > 📘
 >
-> Refer to [InAppContentBlocksViewController](https://github.com/exponea/exponea-ios-sdk/blob/main/ExponeaSDK/Example/Views/InAppContentBlocks/InAppContentBlocksViewController.swift) in the [example app](https://documentation.bloomreach.com/engagement/docs/ios-sdk-example-app) for a reference implementation.
+> Refer to [InAppContentBlocksViewController](https://github.com/exponea/exponea-ios-sdk/blob/main/ExponeaSDK/Example/Views/InAppContentBlocks/InAppContentBlocksViewController.swift) in the [Example app for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-example-app) for a reference implementation.
 
 > 👍
 >
@@ -129,7 +134,7 @@ The SDK automatically tracks `banner` events for in-app content blocks with the 
 
 > ❗️
 >
-> The behavior of in-app content block tracking may be affected by the tracking consent feature, which in enabled mode requires explicit consent for tracking. Refer to the [consent documentation](https://documentation.bloomreach.com/engagement/docs/ios-sdk-tracking-consent) documentation for details.
+> The behavior of in-app content block tracking may be affected by the tracking consent feature, which in enabled mode requires explicit consent for tracking. Refer to the [Tracking consent for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-tracking-consent) documentation for details.
 
 ## Customization
 
@@ -158,21 +163,10 @@ let index = carouselView.getShownIndex()
 let count = carouselView.getShownCount()
 ```
 
-You can register a `onMessageShown` or `onMessageChanged` callback to a carousel view instance to retrieve information for each update.
+Receive carousel presentation callbacks by providing a DefaultContentBlockCarouselCallback implementation via the behaviourCallback parameter of the carousel view initializer (see [Customize action behavior](#carousel-view) below). The protocol provides the following methods:
 
-```swift
-// This is triggered on each scroll so 'contentBlock' parameter represents currently shown content block
-carouselView.onMessageShown = { message in
-    print(message.index) // so as 'index' represents position index of currently shown content block 
-    print(message.placeholderId)
-}
-
-// This is triggered after 'reload' or if a content block is removed because interaction has been done
-carouselView.onMessageChanged = { data in
-    print("ON MESSAGE CHANGED")
-    print(data)
-}    
-```
+- `onMessageShown(placeholderId:contentBlock:index:count:)` is triggered on each scroll, providing the currently shown content block and its position index.
+- `onMessagesChanged(count:messages:)` is triggered after `reload` or when a content block is removed due to user interaction.
 
 ### Defer in-app content blocks loading
 
@@ -195,7 +189,6 @@ You may want to render your app's UI differently depending on whether an in-app 
 
 In such use cases you can use the `contentReadyCompletion` on the placeholder view to get notified when an in-app content block has been successfully loaded or no content was found.
 
-
 ```swift
 let placeholderView = StaticInAppContentBlockView(placeholder: "placeholder")
 placeholderView.contentReadyCompletion = { [weak self] contentLoaded in
@@ -208,6 +201,15 @@ placeholderView.contentReadyCompletion = { [weak self] contentLoaded in
         // you can hide this view because no In-app content block is available now
         placeholderView.isHidden = true
     }
+}
+```
+
+In such use cases you can use the `calculator.publicHeightUpdate` callback on the placeholder view to get notified when an in-app content block changed its height.
+
+```swift
+lazy var placeholder = StaticInAppContentBlockView(placeholder: "example_top", deferredLoad: true)
+placeholder.calculator.publicHeightUpdate = { calculator in
+    print(calculator.height)
 }
 ```
 
@@ -288,37 +290,42 @@ class CustomInAppContentBlockCallback: InAppContentBlockCallbackType {
         // content block action has to be handled for given `action.url`
         handleUrlByYourApp(action.url)
     }
+
+    func onActionClickedSafari(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse, action: ExponeaSDK.InAppContentBlockAction) {
+        // content block action has to be tracked for 'click' event
+        Exponea.shared.trackInAppContentBlockClick(
+            placeholderId: placeholderId,
+            action: action,
+            message: contentBlock
+        )
+        // content block action has to be handled for given `action.url`
+        handleUrlByYourApp(action.url)
+    }
 }
 ```
 
 > 📘
 >
-> Refer to [InAppContentBlocksViewController](https://github.com/exponea/exponea-ios-sdk/blob/main/ExponeaSDK/Example/Views/InAppContentBlocks/InAppContentBlocksViewController.swift) in the [example app](https://documentation.bloomreach.com/engagement/docs/ios-sdk-example-app) for a working example.
+> Refer to [InAppContentBlocksViewController](https://github.com/exponea/exponea-ios-sdk/blob/main/ExponeaSDK/Example/Views/InAppContentBlocks/InAppContentBlocksViewController.swift) in the [Example app for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-example-app) for a working example.
 
 #### Carousel view
 
-You can configure the action behavior for a `CarouselInAppContentBlockView` through `contentBlockCarouselCallback` by setting the `trackActions` and `overrideDefaultBehavior` flags.
+Configure the action behavior of `CarouselInAppContentBlockView` by passing a custom `DefaultContentBlockCarouselCallback` implementation using the `behaviourCallback` parameter of the initializer. The callback object controls the `trackActions` and `overrideDefaultBehavior` flags.
 
 ##### trackActions
 
 - Default value: `true`
-- If `false`, events "close" and "click" on banners won't be tracked by the SDK. You can add your custom behavior via `customContentBlockCarouselCallback` (see example [below](#customcontentblockcarouselcallback)).
-
-```swift
-carousel.contentBlockCarouselCallback.trackActions = false
-```
+- If `false`, the SDK won't track `close` and `click` events on banners.
 
 ##### overrideDefaultBehavior
 
 - Default value: `false`
-- If `true`, deep links and universal links won't be opened. You can add your custom behavior via `customContentBlockCarouselCallback` (see example [below](#customcontentblockcarouselcallback)).
+- If `true`, the SDK won't open deep links or universal links.
 
-##### customContentBlockCarouselCallback
-
-You can add your custom behavior by setting `customContentBlockCarouselCallback` on the `CarouselInAppContentBlockView`:
+Set these flags on your callback object and pass it to the carousel view initializer:
 
 ```swift
-CarouselInAppContentBlockView(placeholder: "example_carousel", customContentBlockCarouselCallback: CustomCarouselCallback())
+CarouselInAppContentBlockView(placeholder: "example_carousel", behaviourCallback: CustomCarouselCallback())
 ```
 
 The callback behavior object must implement `DefaultContentBlockCarouselCallback`.
@@ -329,7 +336,11 @@ public class CustomCarouselCallback: DefaultContentBlockCarouselCallback {
     public var overrideDefaultBehavior: Bool = false
     public var trackActions: Bool = true
 
-    public func onMessageShown(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse) {
+    public func onMessageShown(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse, index: Int, count: Int) {
+        // space for custom implementation
+    }
+
+    public func onMessagesChanged(count: Int, messages: [ExponeaSDK.InAppContentBlockResponse]) {
         // space for custom implementation
     }
 
@@ -435,7 +446,7 @@ class CustomBehaviourCallback: InAppContentBlockCallbackType {
     }
 
     func onMessageShown(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse) {
-        // Calling originalBehavior tracks 'show' event and opens URL
+        // Calling originalBehaviour tracks 'show' event and opens URL
         originalBehaviour.onMessageShown(placeholderId: placeholderId, contentBlock: contentBlock)
         viewDelegate.showMessage(contentBlock)
     }
@@ -445,20 +456,25 @@ class CustomBehaviourCallback: InAppContentBlockCallbackType {
     }
 
     func onError(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse?, errorMessage: String) {
-        // Calling originalBehavior tracks 'error' event
+        // Calling originalBehaviour tracks 'error' event
         originalBehaviour.onError(placeholderId: placeholderId, contentBlock: contentBlock, errorMessage: errorMessage)
         viewDelegate.showError()
     }
 
     func onCloseClicked(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse) {
-        // Calling originalBehavior tracks 'close' event
+        // Calling originalBehaviour tracks 'close' event
         originalBehaviour.onCloseClicked(placeholderId: placeholderId, contentBlock: contentBlock)
         viewDelegate.hideMe()
     }
 
     func onActionClicked(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse, action: ExponeaSDK.InAppContentBlockAction) {
-        // Calling originalBehavior tracks 'click' event
+        // Calling originalBehaviour tracks 'click' event
         originalBehaviour.onActionClicked(placeholderId: placeholderId, contentBlock: contentBlock, action: action)
+    }
+
+    func onActionClickedSafari(placeholderId: String, contentBlock: ExponeaSDK.InAppContentBlockResponse, action: ExponeaSDK.InAppContentBlockAction) {
+        // Calling originalBehaviour tracks 'click' event and opens in SFSafariViewController
+        originalBehaviour.onActionClickedSafari(placeholderId: placeholderId, contentBlock: contentBlock, action: action)
     }
 }
 ```
@@ -499,7 +515,7 @@ The order in which content blocks are displayed is determined by:
 1. By the `Priority` setting, descending
 2. By the `Name`, ascending (alphabetically)
 
-You can extend `CarouselInAppContentBlockView` to override methods like `func filterContentBlocks(placeholder: String, continueCallback: TypeBlock<[InAppContentBlockResponse]>?, expiredCompletion: EmptyBlock?)` and `func sortContentBlocks(data: [StaticReturnData]) -> [StaticReturnData]`. Refer to [`InAppContentBlockCarouselViewController`](https://github.com/exponea/exponea-ios-sdk/blob/main/ExponeaSDK/Example/Views/InAppContentBlocks/InAppContentBlockCarouselViewController.swift) in the [example app](https://documentation.bloomreach.com/engagement/docs/ios-sdk-example-app) for an example implementation ()`CustomCarouselView`).
+You can extend `CarouselInAppContentBlockView` to override methods like `func filterContentBlocks(placeholder: String, continueCallback: TypeBlock<[InAppContentBlockResponse]>?, expiredCompletion: EmptyBlock?)` and `func sortContentBlocks(data: [StaticReturnData]) -> [StaticReturnData]`. Refer to [`InAppContentBlockCarouselViewController`](https://github.com/exponea/exponea-ios-sdk/blob/main/ExponeaSDK/Example/Views/InAppContentBlocks/InAppContentBlockCarouselViewController.swift) in the [Example app for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-example-app) for an example implementation ()`CustomCarouselView`).
 
 ```swift
 class CustomCarouselView: CarouselInAppContentBlockView {

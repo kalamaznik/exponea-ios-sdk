@@ -1,12 +1,15 @@
 ---
-title: Configure Apple Push Notification Service
-excerpt: Configure the Apple Push Notification Service Integration for Engagement
+title: Configure Apple Push Notification Service for iOS SDK
 slug: ios-sdk-configure-apns
-categorySlug: integrations
-parentDocSlug: ios-sdk-push-notifications
+category:
+  uri: /branches/2/categories/guides/Developers
+parent:
+  uri: ios-sdk-push-notifications
+content:
+  excerpt: Configure the Apple Push Notification Service Integration for Engagement
 ---
 
-To be able to send [iOS push notifications](https://documentation.bloomreach.com/engagement/docs/ios-sdk-push-notifications) using Engagement, you must obtain an Apple Push Notification service (APNs) authentication token signing key and configure the APNs integration in the Engagement web app.
+To be able to send [Push notifications for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-push-notifications) using Engagement, you must obtain an Apple Push Notification service (APNs) authentication token signing key and configure the APNs integration in the Engagement web app.
 
 > 📘
 >

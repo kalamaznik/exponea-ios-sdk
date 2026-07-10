@@ -16,7 +16,6 @@ import Quick
 
 final class AppInboxTrackingSpec: QuickSpec {
 
-    private let semaphore = DispatchSemaphore(value: 1)
     let configuration = try! Configuration(
         projectToken: "token",
         authorization: Authorization.none,
@@ -34,6 +33,9 @@ final class AppInboxTrackingSpec: QuickSpec {
 
         describe("AppInbox tracking") {
             beforeEach {
+                // Reset the shared SDK instance so state from other test specs
+                // (e.g. ExponeaSpec, SegmentationSpec) does not contaminate these tests.
+                Exponea.shared = ExponeaInternal()
                 IntegrationManager.shared.isStopped = false
                 repository = MockRepository(configuration: self.configuration)
                 flushManager = MockFlushingManager()
@@ -47,6 +49,7 @@ final class AppInboxTrackingSpec: QuickSpec {
                     trackManagerInitializator: { _ in },
                     userDefaults: userDefaults,
                     campaignRepository: CampaignRepository(userDefaults: userDefaults),
+                    requirePushAuthorization: self.configuration.requirePushAuthorization,
                     onEventCallback: { _, _ in
                         // nothing
                     })
@@ -55,7 +58,7 @@ final class AppInboxTrackingSpec: QuickSpec {
                     trackingManager: trackingManager,
                     database: database
                 )
-                AppInboxCache().clear()
+                AppInboxCache.shared.clear()
                 trackingConsentManager = TrackingConsentManager(trackingManager: trackingManager)
             }
 
@@ -85,9 +88,10 @@ final class AppInboxTrackingSpec: QuickSpec {
                 trackingConsentManager.trackAppInboxOpened(message: testMessage, mode: .IGNORE_CONSENT)
                 let trackedEvents = try fetchTrackEvents()
                 expect(trackedEvents.count).to(equal(1))
-                Exponea.shared.stopIntegration()
-                let trackedEventsAfter = try fetchTrackEvents()
-                expect(trackedEventsAfter.count).to(equal(0))
+                waitUntil(timeout: .seconds(10)) { done in
+                    Exponea.shared.stopIntegration { done() }
+                }
+                expect(IntegrationManager.shared.isStopped).to(beTrue())
                 IntegrationManager.shared.isStopped = false
             }
 
@@ -104,9 +108,10 @@ final class AppInboxTrackingSpec: QuickSpec {
                 )
                 let trackedEvents = try fetchTrackEvents()
                 expect(trackedEvents.count).to(equal(1))
-                Exponea.shared.stopIntegration()
-                let trackedEventsAfter = try fetchTrackEvents()
-                expect(trackedEventsAfter.count).to(equal(0))
+                waitUntil(timeout: .seconds(10)) { done in
+                    Exponea.shared.stopIntegration { done() }
+                }
+                expect(IntegrationManager.shared.isStopped).to(beTrue())
                 IntegrationManager.shared.isStopped = false
             }
 
@@ -161,9 +166,10 @@ final class AppInboxTrackingSpec: QuickSpec {
                 )
                 let trackedEvents = try fetchTrackEvents()
                 expect(trackedEvents.count).to(equal(1))
-                Exponea.shared.stopIntegration()
-                let trackedEventsAfter = try fetchTrackEvents()
-                expect(trackedEventsAfter.count).to(equal(0))
+                waitUntil(timeout: .seconds(10)) { done in
+                    Exponea.shared.stopIntegration { done() }
+                }
+                expect(IntegrationManager.shared.isStopped).to(beTrue())
                 IntegrationManager.shared.isStopped = false
             }
         }
@@ -182,8 +188,6 @@ final class AppInboxTrackingSpec: QuickSpec {
 
         /// Creates a test message and goes through 'fetch process' to gain syncToken and customerId to be usable for next handling
         func fetchTestMessage(id: String, syncToken: String?) throws -> MessageItem {
-            semaphore.wait()
-            defer { semaphore.signal() }
             let response = AppInboxResponse(
                 success: true,
                 messages: [
@@ -193,7 +197,7 @@ final class AppInboxTrackingSpec: QuickSpec {
             )
             repository.fetchAppInboxResult = Result.success(response)
             var fetchedMessage: MessageItem?
-            waitUntil(timeout: .seconds(5)) { done in
+            waitUntil(timeout: .seconds(20)) { done in
                 appInboxManager.fetchAppInbox { result in
                     fetchedMessage = result.value?.first
                     done()

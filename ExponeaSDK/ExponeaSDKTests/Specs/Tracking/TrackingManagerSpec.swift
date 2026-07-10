@@ -24,6 +24,7 @@ class TrackingManagerSpec: QuickSpec {
             var configuration: ExponeaSDK.Configuration!
 
             beforeEach {
+                Exponea.shared = ExponeaInternal()
                 IntegrationManager.shared.isStopped = false
                 configuration = try! Configuration(
                     projectToken: UUID().uuidString,
@@ -51,6 +52,7 @@ class TrackingManagerSpec: QuickSpec {
                     trackManagerInitializator: { _ in },
                     userDefaults: userDefaults,
                     campaignRepository: CampaignRepository(userDefaults: userDefaults),
+                    requirePushAuthorization: repository.configuration.requirePushAuthorization,
                     onEventCallback: { type, event in
                         
                     }
@@ -78,7 +80,12 @@ class TrackingManagerSpec: QuickSpec {
                 ]
                 expect { try trackingManager.track(EventType.customEvent, with: data) }.notTo(raiseException())
                 expect { try database.fetchTrackEvent()[0].dataTypes }.to(equal([
-                    .properties(["prop": .string("value"), "default_prop": .string("default_value")]),
+                    .properties([
+                        "prop": .string("value"),
+                        "default_prop": .string("default_value"),
+                        "application_id": .string("default-application"),
+                        "device_id": .string(TelemetryUtility.getInstallId(userDefaults: userDefaults))
+                    ]),
                     .timestamp(123456)
                 ]))
             }
@@ -87,9 +94,40 @@ class TrackingManagerSpec: QuickSpec {
                 let data: [DataType] = [.timestamp(123456)]
                 expect { try trackingManager.track(EventType.customEvent, with: data) }.notTo(raiseException())
                 expect { try database.fetchTrackEvent()[0].dataTypes }.to(equal([
-                    .properties(["default_prop": .string("default_value")]),
+                    .properties([
+                        "default_prop": .string("default_value"),
+                        "application_id": .string("default-application"),
+                        "device_id": .string(TelemetryUtility.getInstallId(userDefaults: userDefaults))
+                    ]),
                     .timestamp(123456)
                 ]))
+            }
+
+            // Regression guard: device-property snapshot must be attached to notification_state
+            // events. The wire payload should carry sdk_version / os_version / app_version / etc.
+            // so backend & analytics can correlate token reachability issues with the originating
+            // device. The check uses key-by-key assertions (not full equality) so the test stays
+            // resilient to future SDK / OS version bumps.
+            it("should attach device properties to notification_state events") {
+                expect {
+                    try trackingManager.trackNotificationState(
+                        pushToken: "device-token",
+                        isValid: true,
+                        description: "Permission granted"
+                    )
+                }.notTo(raiseException())
+                let stored = try! database.fetchTrackEvent()
+                expect(stored).notTo(beEmpty())
+                let properties = stored[0].dataTypes.properties
+                expect(properties["sdk_version"] as? String).to(equal(Exponea.version))
+                expect(properties["os_name"] as? String).to(equal(Constants.DeviceInfo.osName))
+                expect((properties["os_version"] as? String) ?? "").notTo(beEmpty())
+                expect((properties["app_version"] as? String) ?? "").notTo(beEmpty())
+                expect((properties["device_model"] as? String) ?? "").notTo(beEmpty())
+                expect((properties["device_type"] as? String) ?? "").notTo(beEmpty())
+                expect(properties["platform"] as? String).to(equal("ios"))
+                expect(properties["description"] as? String).to(equal("Permission granted"))
+                expect(properties["application_id"] as? String).to(equal("default-application"))
             }
 
             context("updateLastEvent") {

@@ -1,14 +1,17 @@
 ---
-title: Initial SDK setup
-excerpt: Install and configure the iOS SDK
+title: Initial setup for iOS SDK
 slug: ios-sdk-setup
-categorySlug: integrations
-parentDocSlug: ios-sdk
+category:
+  uri: /branches/2/categories/guides/Developers
+parent:
+  uri: ios-sdk
+content:
+  excerpt: Install and configure the iOS SDK
 ---
 
 ## Install the SDK
 
-The Exponea iOS SDK can be installed or updated using [CocoaPods](https://cocoapods.org/), [Carthage](https://github.com/Carthage/Carthage), or [Swift Package Manager](https://www.swift.org/package-manager/).
+The Exponea iOS SDK can be installed or updated using [CocoaPods](https://cocoapods.org/) or [Swift Package Manager](https://www.swift.org/package-manager/).
 
 The instructions below are for Xcode 15.1 and may differ if you use a different Xcode version.
 
@@ -35,25 +38,9 @@ The instructions below are for Xcode 15.1 and may differ if you use a different 
 
 Optionally, you can specify the `ExponeaSDK` version as follows to let `pod` automatically any smaller than minor version updates:
 ```
-pod "ExponeaSDK", "~> 3.3.0"
+pod "ExponeaSDK", "~> 4.2.0"
 ```
 For more information, refer to [Specifying pod versions](https://guides.cocoapods.org/using/the-podfile.html#specifying-pod-versions) in the Cocoapods documentation.
-
-### Carthage
-
-1. Install [Carthage](https://github.com/Carthage/Carthage) if you haven't done so yet.
-2. Create a file named `Cartfile` in your Xcode project folder.
-3. Add the following line to your `Cartfile`
-    ```
-    github "exponea/exponea-ios-sdk"
-    ```
-4. In a terminal window, navigate to your Xcode project folder and run the following command:
-    ```
-    carthage update exponea-ios-sdk --use-xcframeworks --platform iOS
-    ```
-5. Open your Xcode project and navigate to your application target's settings. On the `General` tab, find the `Frameworks, Libraries, and Embedded Content` section.
-6. Open Finder, navigate to the `Carthage/Build` folder inside your project folder and drag and drop every `*.xcframework` folder inside it to the `Frameworks, Libraries, and Embedded Content` section in Xcode.
-   ![XCFRameworks added to Frameworks, Libraries, and Embedded Content](https://raw.githubusercontent.com/exponea/exponea-ios-sdk/main/Documentation/images/carthage-xcframeworks.png)
 
 ### Swift Package Manager
 
@@ -84,9 +71,13 @@ Now that you have installed the SDK in your project, you must import, configure,
  > Refer to [Stop SDK integration](https://documentation.bloomreach.com/engagement/docs/ios-sdk-tracking#stop-sdk-integration) for details.
 
 
-The required configuration parameters are `projectToken`, `authorization.token`, and `baseUrl`. You can find these as `Project token`, `API Token`, and `API Base URL` in the Bloomreach Engagement webapp under `Project settings` > `Access management` > `API`:
+The SDK supports two integration modes: **Project/Engagement** and **Stream/Data hub**. The required configuration parameters differ by mode.
+
+**Project/Engagement mode** requires `projectToken`, `authorization.token`, and `baseUrl`. You can find these as `Project token`, `API Token`, and `API Base URL` in the Bloomreach Engagement webapp under `Project settings` > `Access management` > `API`:
 
 ![Project token, API Base URL, and API key](https://raw.githubusercontent.com/exponea/exponea-ios-sdk/main/Documentation/images/api-access-management.png)
+
+**Stream/Data hub mode** requires `streamId` (and optionally `baseUrl`). Authentication is handled via JWT tokens provided after configuration.
 
 > 📘
 >
@@ -98,28 +89,73 @@ Import the SDK:
 import ExponeaSDK
 ```
 
-Initialize the SDK:
+Initialize the SDK with **Project/Engagement** settings:
 
 ```swift
 Exponea.shared.configure(
-	Exponea.ProjectSettings(
-		projectToken: "YOUR PROJECT TOKEN",
-		authorization: .token("YOUR API KEY"),
-		baseUrl: "https://api.exponea.com"
-	),
-	pushNotificationTracking: .disabled
+    Exponea.ProjectSettings(
+        projectToken: "YOUR PROJECT TOKEN",
+        authorization: .token("YOUR API KEY"),
+        baseUrl: "https://api.exponea.com"
+    ),
+    pushNotificationTracking: .disabled
 )
 ```
+
+Or initialize the SDK with **Stream/Data hub** settings:
+
+```swift
+Exponea.shared.configure(
+    Exponea.StreamSettings(
+        streamId: "YOUR_STREAM_ID",
+        baseUrl: "https://api.exponea.com"
+    ),
+    pushNotificationTracking: .enabled(appGroup: "YOUR_APP_GROUP")
+)
+
+> 📘 Note
+>
+> Refer to Data hub documentation for more details on how you can [configure iOS SDK with JWT authentication](https://documentation.bloomreach.com/data-hub/docs/configure-android-sdk-with-jwt-authentication)
+
+// After configuration, register JWT error handler and provide initial token:
+Exponea.shared.setJwtErrorHandler { context in
+    yourBackend.fetchNewJwt { newToken in
+        Exponea.shared.setSdkAuthToken(newToken)
+    }
+}
+Exponea.shared.setSdkAuthToken("YOUR_STREAM_JWT_TOKEN")
+```
+
+> For Stream mode, see [Stream JWT authorization](https://documentation.bloomreach.com/engagement/docs/ios-sdk-authorization#stream-jwt-authorization-data-hub) for details on JWT lifecycle management.
 
 Your `AppDelegate`'s `application:didFinishLaunchingWithOptions` method is typically a good place to do the initialization but, depending on your application design, it can be anywhere in your code.
 
 At this point, the SDK is active and should now be tracking customers and events in your app.
 
+####Configure application ID
+*Multiple mobile apps:* If your Engagement project supports multiple mobile apps, specify the `applicationID` in your configuration. This helps distinguish between different apps in your project.
+
+```swift
+Exponea.shared.configure(
+    Exponea.ProjectSettings(
+        projectToken: "YOUR PROJECT TOKEN",
+        authorization: .token("YOUR API KEY"),
+        baseUrl: "https://api.exponea.com",
+        applicationID: "<Your application id>" 
+    ),
+    pushNotificationTracking: .disabled
+)
+```
+
+Make sure your `applicationID` value matches exactly Application ID configured in your Bloomreach Engagement under **Project Settings > Campaigns > Channels > Push Notifications.**
+
+*Single mobile app:* If your Engagement project supports only one app, you can skip the `applicationID` configuration. The SDK will automatically use the default value `default-application`.
+
 SDK initialization immediately creates a new customer profile with a new cookie [soft ID](https://documentation.bloomreach.com/engagement/docs/customer-identification#soft-id) unless the customer has been [identified](https://documentation.bloomreach.com/engagement/docs/ios-sdk-tracking#identify) previously.
 
 > 📘
 >
-> Refer to [Tracking](https://documentation.bloomreach.com/engagement/docs/ios-sdk-tracking) for details on which events are automatically tracked by the SDK.
+> Refer to [Tracking for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-tracking) for details on which events are automatically tracked by the SDK.
 
 > ❗️ 
 > 
@@ -129,7 +165,7 @@ SDK initialization immediately creates a new customer profile with a new cookie 
 
 ### Advanced configuration
 
-The SDK can be further configured by providing additional parameters to the `configure` method. For a complete list of available configuration parameters, refer to the [Configuration](https://documentation.bloomreach.com/engagement/docs/ios-sdk-configuration) documentation.
+The SDK can be further configured by providing additional parameters to the `configure` method. For a complete list of available configuration parameters, refer to the [Configuration for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-configuration) documentation.
 
 ### Log level
 
@@ -156,8 +192,8 @@ Exponea.logger.logLevel = .verbose
 
 ### Authorization
 
-Read [Authorization](https://documentation.bloomreach.com/engagement/docs/ios-sdk-authorization) to learn more about the different authorization modes supported by the SDK and how to use [customer token](https://documentation.bloomreach.com/engagement/docs/customer-token) authorization.
+Read [Authorization for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-authorization) to learn more about the different authorization modes supported by the SDK and how to use [customer token](https://documentation.bloomreach.com/engagement/docs/customer-token) authorization.
 
 ### Data flushing
 
-Read [Data flushing](https://documentation.bloomreach.com/engagement/docs/ios-sdk-data-flushing) to learn more about how the SDK uploads data to the Engagement API and how to customize this behavior.
+Read [Data flushing for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-data-flushing) to learn more about how the SDK uploads data to the Engagement API and how to customize this behavior.

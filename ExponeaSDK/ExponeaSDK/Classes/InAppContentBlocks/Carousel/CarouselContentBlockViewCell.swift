@@ -19,12 +19,18 @@ class CarouselContentBlockViewCell: UICollectionViewCell, WKNavigationDelegate {
     var touchCallback: EmptyBlock?
     var releaseCallback: EmptyBlock?
     var contentBlockCarouselCallback: DefaultContentBlockCarouselCallback?
+    // Cached so we can recover from `webViewWebContentProcessDidTerminate(_:)`
+    // when iOS jetsams the WebContent process while the app is backgrounded.
+    private var lastLoadedHtml: String?
 
     override func prepareForReuse() {
         super.prepareForReuse()
 
+        webview.stopLoading()
+        webview.loadHTMLString("", baseURL: nil)
         contentBlockCarouselCallback = nil
         assignedMessage = nil
+        lastLoadedHtml = nil
     }
 
     override init(frame: CGRect) {
@@ -72,6 +78,7 @@ class CarouselContentBlockViewCell: UICollectionViewCell, WKNavigationDelegate {
         }
         self.assignedMessage = assignedMessage
         self.placeholder = placeholder
+        self.lastLoadedHtml = html
         webview.loadHTMLString(html, baseURL: nil)
     }
 
@@ -82,6 +89,15 @@ class CarouselContentBlockViewCell: UICollectionViewCell, WKNavigationDelegate {
     ) {
         let handled = handleUrlClick(navigationAction.request.url)
         decisionHandler(handled ? .cancel : .allow)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        Exponea.logger.log(
+            .warning,
+            message: "Carousel cell WebContent process terminated; reissuing last load for placeholder \(placeholder)"
+        )
+        guard let html = lastLoadedHtml, !html.isEmpty else { return }
+        webView.loadHTMLString(html, baseURL: nil)
     }
 
     private func handleUrlClick(_ actionUrl: URL?) -> Bool {
