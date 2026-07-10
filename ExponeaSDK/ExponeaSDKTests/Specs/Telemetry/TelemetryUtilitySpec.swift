@@ -51,7 +51,7 @@ final class TelemetryUtilitySpec: QuickSpec {
                     TelemetryUtility.formatConfigurationForTracking(
                         try! Configuration(
                             projectToken: "token",
-                            authorization: .none,
+                            authorization: Authorization.none,
                             baseUrl: Constants.Repository.baseUrl
                         )
                     )
@@ -70,6 +70,7 @@ final class TelemetryUtilitySpec: QuickSpec {
                         "isDarkModeEnabled": "false [default]",
                         "appInboxDetailImageInset": "56.0 [default]",
                         "manualSessionAutoClose": "true [default]",
+                        "regenerateDeviceIdOnAnonymize": "false [default]",
                         "automaticSessionTracking": "true [default]",
                         "projectMapping": "",
                         "sessionTimeout": "60.0 [default]",
@@ -83,7 +84,7 @@ final class TelemetryUtilitySpec: QuickSpec {
                 let configuration = try! Configuration(
                     projectToken: "mock-project-token",
                     projectMapping: [EventType.banner: [
-                        ExponeaProject(projectToken: "other-mock-project-token", authorization: .none)
+                        ExponeaProject(projectToken: "other-mock-project-token", authorization: Authorization.none)
                     ]],
                     authorization: .token("mock-authorization"),
                     baseUrl: "http://mock-base-url.com",
@@ -95,7 +96,8 @@ final class TelemetryUtilitySpec: QuickSpec {
                     tokenTrackFrequency: TokenTrackFrequency.daily,
                     flushEventMaxRetries: 123,
                     allowDefaultCustomerProperties: true,
-                    advancedAuthEnabled: false
+                    advancedAuthEnabled: false,
+                    regenerateDeviceIdOnAnonymize: true
                 )
                 expect(TelemetryUtility.formatConfigurationForTracking(configuration)).to(
                     equal([
@@ -115,6 +117,7 @@ final class TelemetryUtilitySpec: QuickSpec {
                         "sessionTimeout": "12345.0",
                         "authorization": "[REDACTED]",
                         "manualSessionAutoClose": "true [default]",
+                        "regenerateDeviceIdOnAnonymize": "true",
                         "projectMapping": "[REDACTED]",
                         "appInboxDetailImageInset": "56.0 [default]",
                         "defaultProperties": "[REDACTED]"

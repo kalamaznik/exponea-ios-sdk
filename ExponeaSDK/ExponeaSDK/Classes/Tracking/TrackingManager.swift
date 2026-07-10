@@ -182,7 +182,7 @@ extension TrackingManager: TrackingManagerType {
         var projectTokens: Set<String> = []
         while !events.isEmpty {
             let event = events.removeLast()
-            if let projectToken = event.projectToken, !projectTokens.contains(projectToken) {
+            if let projectToken = event.integrationId, !projectTokens.contains(projectToken) {
                 projectTokens.insert(projectToken)
                 try database.updateEvent(withId: event.databaseObjectProxy.objectID, withData: data)
             }
@@ -203,9 +203,15 @@ extension TrackingManager: TrackingManagerType {
                 "platform": .string("ios"),
                 "description": .string(description)
             ]
+            // Carry the SDK-collected device snapshot (sdk_version, os_version, app_version,
+            // device_model, …) on notification_state events so backend & analytics can
+            // correlate token reachability issues with the originating device. Default
+            // properties remain gated by `canUseDefaultProperties`; only the SDK-owned
+            // device snapshot is attached here.
             try trackInternal(
                 .notificationState,
                 with: [
+                    .properties(device.properties),
                     .properties(data),
                     .pushNotificationToken(
                         token: pushToken,
@@ -295,7 +301,7 @@ extension TrackingManager: TrackingManagerType {
         of type: EventType,
         with payload: [DataType],
         _ trackingAllowed: Bool,
-        within project: ExponeaProject
+        within project: any ExponeaIntegrationType
     ) throws {
         switch type {
         case .identifyCustomer,
@@ -695,25 +701,31 @@ extension TrackingManager: InAppContentBlocksTrackingDelegate {
 // MARK: - Anonymize -
 
 extension TrackingManager {
-    public func anonymize(exponeaProject: ExponeaProject, projectMapping: [EventType: [ExponeaProject]]?) throws {
+    func anonymize(
+        exponeaIntegrationType: any ExponeaIntegrationType,
+        exponeaProjectMapping: [EventType: [ExponeaProject]]?
+    ) throws {
         let pushToken = customerPushToken
-        try trackNotificationState(
-            pushToken: pushToken,
-            isValid: false,
-            description: "Invalidated"
-        )
         sessionManager.clear()
 
-        repository.configuration.switchProjects(mainProject: exponeaProject, projectMapping: projectMapping)
+        repository.configuration.switchProjects(
+            exponeaIntegrationType: exponeaIntegrationType,
+            exponeaIntegrationMapping: exponeaProjectMapping
+        )
         repository.configuration.saveToUserDefaults()
 
         database.makeNewCustomer()
         UNAuthorizationStatusProvider.current.isAuthorized { authorized in
             Exponea.shared.executeSafely { [weak self] in
                 guard let self else { return }
+                // The anonymize re-registration track must reflect the actual
+                // authorization status, matching the normal tracking flow in
+                // PushNotificationManager.trackCurrentPushToken. The previous expression
+                // `!requirePushAuthorization || authorized` reported `valid=true` when
+                // requirePushAuthorization=false regardless of the real permission state.
                 try self.trackNotificationState(
                     pushToken: pushToken,
-                    isValid: !self.requirePushAuthorization || authorized,
+                    isValid: authorized,
                     description: authorized ? "Permission granted" : "Permission denied"
                 )
             }

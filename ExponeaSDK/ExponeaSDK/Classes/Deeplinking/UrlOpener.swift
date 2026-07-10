@@ -33,6 +33,7 @@ final class UrlOpener: UrlOpenerType {
         // only http/https is allowed
         // https://developer.apple.com/documentation/foundation/nsuseractivity/1418086-webpageurl
         // eg. MYDEEPLINK::HOME:SCREEN:1, exponea://deeplink
+
 //        guard url.absoluteString.isValidURL, url.scheme == "http" || url.scheme == "https" else {
 //            return false
 //        }
@@ -46,7 +47,7 @@ final class UrlOpener: UrlOpenerType {
 //            continue: userActivity,
 //            restorationHandler: { _ in }
 //        ) ?? false
-//        return false
+        return false
     }
 
     private func openURLSchemeDeeplink(_ url: URL, application: UIApplication) {

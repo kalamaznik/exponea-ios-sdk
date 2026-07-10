@@ -49,11 +49,9 @@ final class CrashManagerSpec: QuickSpec {
         beforeEach {
             storage = MockTelemetryStorage()
             let userDefaults = TelemetryUtility.getUserDefaults(appGroup: nil)
-            let installId = TelemetryUtility.getInstallId(userDefaults: userDefaults)
             upload = MockTelemetryUpload(
-                installId: installId, configGetter: {
-                    Exponea.shared.configuration
-                }
+                installIdProvider: { TelemetryUtility.getInstallId(userDefaults: userDefaults) },
+                configGetter: { Exponea.shared.configuration }
             )
             MockExceptionHandler.called = false
             NSSetUncaughtExceptionHandler(nil)
@@ -147,6 +145,20 @@ final class CrashManagerSpec: QuickSpec {
             crashManager.reportLog("log2")
             crashManager.reportLog("log3")
             expect(crashManager.getLogs()).to(equal(["log1", "log2", "log3"]))
+        }
+
+        it("should truncate logs exceeding maxLogMessages") {
+            let crashManager = CrashManager(
+                storage: storage, upload: upload,
+                launchDate: Date(), runId: "mock_run_id"
+            )
+            for i in 0..<(CrashManager.maxLogMessages + 20) {
+                crashManager.reportLog("log_\(i)")
+            }
+            let logs = crashManager.getLogs()
+            expect(logs.count).to(equal(CrashManager.maxLogMessages))
+            expect(logs.first).to(equal("log_20"))
+            expect(logs.last).to(equal("log_\(CrashManager.maxLogMessages + 19)"))
         }
 
         it("should append logs to crashlogs") {

@@ -1,9 +1,12 @@
 ---
 title: App Inbox for iOS SDK
-excerpt: Add a message inbox to your app using the iOS SDK
 slug: ios-sdk-app-inbox
-categorySlug: integrations
-parentDocSlug: ios-sdk
+category:
+  uri: /branches/2/categories/guides/Developers
+parent:
+  uri: ios-sdk
+content:
+  excerpt: Add a message inbox to your app using the iOS SDK
 ---
 
 The App Inbox feature creates a mobile communication channel that lives directly in your app. This inbox can receive messages from marketing campaigns and stores mobile push notifications for a set time period.
@@ -247,7 +250,7 @@ The App Inbox is assigned to an existing customer account (identified by a hard 
 
 To prevent large data transfers on each fetch, the SDK stores the App Inbox locally and loads incrementally. The first fetch will transfer the entire App Inbox, but subsequent fetches will only transfer new messages.
 
-The App Inbox assigned to the current customer can be fetched as follows:
+The App Inbox assigned to the current customer can be fetched with `fetchAppInbox` or `fetchAppInboxMessages`. Both use the appropriate authorization (Stream JWT for Data Hub, Customer Token for Engagement when `advancedAuthEnabled` is true):
 
 ```swift
 Exponea.shared.fetchAppInbox { result in

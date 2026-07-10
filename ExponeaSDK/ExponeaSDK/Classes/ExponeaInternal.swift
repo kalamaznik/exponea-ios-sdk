@@ -87,6 +87,12 @@ public class ExponeaInternal: ExponeaType {
     internal var telemetryManager: TelemetryManager?
 
     internal var campaignRepository: CampaignRepositoryType?
+    
+    /// The manager responsible for Stream JWT lifecycle.
+    internal var jwtAuthManager: JwtAuthManager?
+
+    /// Guards against concurrent `stopIntegration` calls.
+    private var isStopping = false
 
     public var inAppContentBlocksManager: InAppContentBlocksManagerType?
     public var segmentationManager: SegmentationManagerType?
@@ -100,6 +106,14 @@ public class ExponeaInternal: ExponeaType {
     }()
 
     fileprivate func clearAllDependencies() {
+        // Clear JWT from memory and keychain before tearing down
+        jwtAuthManager?.clear()
+        jwtAuthManager = nil
+        JwtStreamAuthProvider.shared = nil
+        if let repo = repository as? ServerRepository {
+            repo.streamAuthProvider = nil
+            repo.onAuthorizationError = nil
+        }
         repository = nil
         trackingManager = nil
         flushingManager = nil
@@ -284,6 +298,12 @@ public class ExponeaInternal: ExponeaType {
                 let database = try DatabaseManager()
                 databaeManagerCopy = database
                 if !Exponea.isBeingTested {
+                    // Install the real UNUserNotificationCenter-backed
+                    // DeliveryAuthorizationProvider on the first production configure.
+                    // Test bundles skip this and keep the NoopProvider default so
+                    // `getNotificationSettings` is never invoked from XCTest context
+                    // (which crashes without the UN entitlement).
+                    DeliveryAuthorizationProvider.installProductionBackend()
                     telemetryManager = TelemetryManager(
                         appGroup: configuration.appGroup,
                         userId: database.currentCustomer.uuid.uuidString
@@ -306,6 +326,37 @@ public class ExponeaInternal: ExponeaType {
 
                 let repository = ServerRepository(configuration: configuration)
                 self.repository = repository
+                
+                // Set up JwtStreamAuthProvider and auth error handler by integration type
+                switch configuration.integrationConfig.type {
+                case .stream:
+                    let jwtStore = KeychainJwtTokenStore()
+                    jwtStore.clearToken()
+                    let jwtManager = JwtAuthManager(
+                        store: jwtStore,
+                        isStreamIntegration: true
+                    )
+                    self.jwtAuthManager = jwtManager
+
+                    let jwtProvider = JwtStreamAuthProvider(jwtAuthManager: jwtManager)
+                    JwtStreamAuthProvider.shared = jwtProvider
+                    repository.streamAuthProvider = jwtProvider
+
+                    repository.onAuthorizationError = { [weak jwtManager] endpoint, statusCode, data in
+                        let baseReason: JwtErrorContext.Reason = statusCode == 403 ? .notProvided : .invalid
+                        let isExpired = (statusCode == 401) && Self.isTokenExpiredResponse(data: data)
+                        let reason: JwtErrorContext.Reason = isExpired ? .expired : baseReason
+                        jwtManager?.handleTokenError(
+                            reason: reason,
+                            endpoint: endpoint,
+                            status: statusCode,
+                            underlying: nil
+                        )
+                    }
+                case .project:
+                    self.jwtAuthManager = nil
+                    repository.onAuthorizationError = nil
+                }
 
                 let flushingManager = try FlushingManager(
                     database: database,
@@ -371,6 +422,7 @@ public class ExponeaInternal: ExponeaType {
                 )
 
                 self.trackingManager = trackingManager
+                self.jwtAuthManager?.setCustomerIdsProvider { [weak self] in self?.trackingManager?.customerIds }
 
                 self.appInboxManager = AppInboxManager(
                     repository: repository,
@@ -608,15 +660,57 @@ public extension ExponeaInternal {
     }
 
     func stopIntegration() {
+        stopIntegration(completion: nil)
+    }
+
+    func stopIntegration(completion: (() -> Void)?) {
+        guard !isStopping && !IntegrationManager.shared.isStopped else {
+            Exponea.logger.log(.warning, message: "stopIntegration already in progress or completed — ignoring.")
+            DispatchQueue.main.async { completion?() }
+            return
+        }
+        isStopping = true
+
         Exponea.shared.telemetryManager?.report(eventWithType: .integrationStopped, properties: [:])
-        IntegrationManager.shared.isStopped = true
-        afterInit.actionBlocks.removeAll()
-        afterInit.setStatus(status: .notInitialized)
-        afterInit.clean()
-        clearUserData(appGroup: repository?.configuration.appGroup)
+
+        let appGroup = repository?.configuration.appGroup
+
+        let performTeardown: () -> Void = { [weak self] in
+            IntegrationManager.shared.isStopped = true
+            self?.afterInit.actionBlocks.removeAll()
+            self?.afterInit.setStatus(status: .notInitialized)
+            self?.afterInit.clean()
+            self?.clearUserData(appGroup: appGroup)
+            self?.isStopping = false
+            DispatchQueue.main.async { completion?() }
+        }
+
+        guard let trackingManager = trackingManager,
+              let flushingManager = flushingManager else {
+            performTeardown()
+            return
+        }
+
+        if repository?.configuration.automaticSessionTracking == true {
+            try? trackingManager.track(.sessionEnd, with: [.timestamp(Date().timeIntervalSince1970)])
+        }
+
+        try? trackingManager.trackNotificationState(
+            pushToken: trackingManager.customerPushToken,
+            isValid: false,
+            description: "Invalidated"
+        )
+
+        flushingManager.flushData(isFromIdentify: false) { _ in
+            performTeardown()
+        }
     }
 
     private func clearUserData(appGroup: String?) {
+        // Clear JWT token when stopping integration (in-memory and Keychain)
+        jwtAuthManager?.clear()
+        clearJwtFromKeychain()
+        
         TelemetryUtility.clearInstallIdFromAllStores(appGroup: appGroup)
         IntegrationManager.shared.onIntegrationStoppedCallbacks.forEach { $0() }
         IntegrationManager.shared.onIntegrationStoppedCallbacks.removeAll()
@@ -651,8 +745,28 @@ public extension ExponeaInternal {
         InAppMessagesCache().clear()
         try? DatabaseManager().removeAllEvents()
         CampaignRepository(userDefaults: userDefaults).clear()
+        
+        // Clear JWT from Keychain - need to do this directly since jwtAuthManager may be nil
+        clearJwtFromKeychain()
+        
         clearAllDependencies()
         FileCache.shared.clear()
+    }
+    
+    /// Clears JWT token from Keychain. Used when SDK is not initialized but we need to clear local data.
+    private func clearJwtFromKeychain() {
+        let store = KeychainJwtTokenStore()
+        store.clearToken()
+        Exponea.logger.log(.verbose, message: "JWT token cleared from Keychain during local data cleanup")
+    }
+
+    /// Returns true when the Tracking API response body contains token_expired: true (JWT no longer valid).
+    private static func isTokenExpiredResponse(data: Data?) -> Bool {
+        guard let data = data,
+              let any = try? JSONSerialization.jsonObject(with: data),
+              let json = any as? [String: Any],
+              let flag = json["token_expired"] as? Bool else { return false }
+        return flag
     }
 
     /// Clears SDK-related keys from UserDefaults (session, config, etc.).
@@ -672,6 +786,7 @@ public extension ExponeaInternal {
             defaults.removeObject(forKey: Constants.General.notificationStateTracked)
             defaults.removeObject(forKey: Constants.General.notificationStateAppVersion)
             defaults.removeObject(forKey: Constants.General.notificationStateApplicationID)
+            defaults.removeObject(forKey: Constants.General.notificationStateLastPermissionFlag)
             Configuration.deleteLastKnownConfig(appGroup: appGroup)
             defaults.synchronize()
         } else {
@@ -686,10 +801,21 @@ public extension ExponeaInternal {
                 defaults.removeObject(forKey: Constants.General.notificationStateTracked)
                 defaults.removeObject(forKey: Constants.General.notificationStateAppVersion)
                 defaults.removeObject(forKey: Constants.General.notificationStateApplicationID)
+                defaults.removeObject(forKey: Constants.General.notificationStateLastPermissionFlag)
                 Configuration.deleteLastKnownConfig(appGroup: Constants.General.userDefaultsSuite)
                 defaults.synchronize()
             }
         }
+        // The pre-init token buffer is always written to the SDK suite
+        // (Constants.General.userDefaultsSuite), not to the app-group suite,
+        // because the app group is unknown until configure() completes. The
+        // app-group branch above only clears its own suite, and
+        // clearKnownSDKKeysFromStandard below only clears .standard, so
+        // neither would remove a buffered token from the SDK suite. Without
+        // this explicit removal a stale pre-init token could survive
+        // anonymize/stopIntegration and be replayed on the next configure().
+        UserDefaults(suiteName: Constants.General.userDefaultsSuite)?
+            .removeObject(forKey: Constants.General.preInitPushTokenBufferKey)
         clearKnownSDKKeysFromStandard()
     }
 
@@ -712,6 +838,8 @@ public extension ExponeaInternal {
         standard.removeObject(forKey: Constants.General.telemetryEvents)
         standard.removeObject(forKey: Constants.General.notificationStateTracked)
         standard.removeObject(forKey: Constants.General.notificationStateAppVersion)
+        standard.removeObject(forKey: Constants.General.notificationStateLastPermissionFlag)
+        standard.removeObject(forKey: Constants.General.preInitPushTokenBufferKey)
         for key in standard.dictionaryRepresentation().keys where key.hasPrefix(Constants.Keys.installTracked) {
             standard.removeObject(forKey: key)
         }
