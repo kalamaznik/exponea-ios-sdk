@@ -59,19 +59,6 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
     private var lastPermissionFlag: Bool?
     /// Serial queue for notification state and frequency checks to avoid races from auth callbacks.
     private let stateQueue = DispatchQueue(label: "com.exponea.pushNotificationManager.state")
-    /// Identity of the last `notification_state` actually emitted, as `"token|isValid|description"`,
-    /// together with the instant it went out. Used by `trackCurrentPushToken` to collapse
-    /// launch-time duplicates: several async entry points can each decide to emit the same
-    /// event within milliseconds, and only the mutable `currentPushToken` / date flags — read
-    /// piecewise under `stateQueue` — coordinate them, which is not enough to prevent two
-    /// identical emissions. This key is the single choke-point guard: an emission whose key
-    /// matches the previous one within `Constants.Notifications.notificationStateDedupWindowSeconds`
-    /// is suppressed. Both fields are only ever touched from inside `trackCurrentPushToken`,
-    /// which every emission path already funnels through under `stateQueue`, so they need no
-    /// extra locking. A genuine token rotation emits an `Invalidated` + `Permission granted`
-    /// pair whose descriptions differ, so the pair is never collapsed by this guard.
-    private var lastEmittedNotificationKey: String?
-    private var lastEmittedNotificationAt: Date?
 
     // some push notification can be received before the delegate is set, we'll store them and call delegate once set
     internal var pendingOpenedPushes: [PushOpenedData] = []
@@ -553,43 +540,19 @@ final class PushNotificationManager: NSObject, PushNotificationManagerType {
         }
         do {
             let pushToken = currentPushToken?.pushToken
-            let resolvedIsValid = isCancelled ? false : (currentPushToken?.isTokenValid ?? true)
-            let resolvedDescription = isCancelled
-                ? "Invalidated"
-                : (isAuthorized ? "Permission granted" : "Permission denied")
-
-            // De-dup guard. Every emission path funnels through here under `stateQueue`, so this
-            // is the one place that can see all candidate emissions of a launch. If the resolved
-            // `(token, isValid, description)` matches the previous emission within the dedup
-            // window, a second async entry point is re-emitting an event the backend already has
-            // — drop it. A real token rotation is unaffected: its `Invalidated` and
-            // `Permission granted` legs differ in description (and validity), so neither collapses
-            // the other. `onSuccess` still runs on a suppressed duplicate because the state it
-            // records (frequency clock, first-track flag) is already true — the event *is* tracked.
-            let emissionKey = pushToken.map { "\($0)|\(resolvedIsValid)|\(resolvedDescription)" }
-            if let emissionKey,
-               emissionKey == lastEmittedNotificationKey,
-               let lastAt = lastEmittedNotificationAt,
-               Date().timeIntervalSince(lastAt) < Constants.Notifications.notificationStateDedupWindowSeconds {
-                Exponea.logger.log(
-                    .verbose,
-                    message: "notification_state emission suppressed as duplicate: \(emissionKey)"
-                )
-                onSuccess?()
-                return
-            }
 
             try trackingManager.trackNotificationState(
                 pushToken: pushToken,
-                isValid: resolvedIsValid,
-                description: resolvedDescription
+                isValid: isCancelled ? false : (currentPushToken?.isTokenValid ?? true),
+                description: isCancelled ?
+                "Invalidated" : (
+                    isAuthorized
+                    ? "Permission granted"
+                    : "Permission denied"
+                )
             )
             // Only mark when we actually sent: trackNotificationState sends only when pushToken is non-nil.
             if pushToken != nil {
-                // Record the emitted identity only after a successful send so a failed network
-                // track does not arm the dedup guard against its own retry within the window.
-                lastEmittedNotificationKey = emissionKey
-                lastEmittedNotificationAt = Date()
                 // Commit the OS permission flag that accompanied this successful emission so
                 // the next launch's `.onTokenChange` gate can detect a permission flip even
                 // when the APNs token string itself has not rotated. Persisting only on

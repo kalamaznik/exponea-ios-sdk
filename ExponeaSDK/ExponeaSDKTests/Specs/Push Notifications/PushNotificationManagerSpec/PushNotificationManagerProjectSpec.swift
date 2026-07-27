@@ -1163,66 +1163,6 @@ final class PushNotificationManagerProjectSpec: QuickSpec {
                 )
             }
 
-            it("suppresses a duplicate notification_state re-emitted within the dedup window") {
-                // Init under `denied` so the dedup key armed by the manager's own startup track
-                // ("...|false|Permission denied") differs from the granted event exercised below —
-                // otherwise the very first foreground would itself be collapsed against init.
-                UNAuthorizationStatusProvider.current = MockUNAuthorizationStatusProviding(status: .denied)
-                createPushManager(
-                    requirePushAuthorization: true,
-                    currentToken: "dedup-token",
-                    tokenTrackFrequency: .everyLaunch,
-                    lastTokenTrackDate: Date(timeIntervalSince1970: 1)
-                )
-                trackingManager.clearCalls()
-                // Permission granted, then two foregrounds back-to-back. Under `.everyLaunch` each
-                // foreground independently reaches `trackCurrentPushToken` with an identical
-                // (dedup-token, true, "Permission granted") payload. The first must emit; the
-                // second — same key, well within the dedup window — must be suppressed, so exactly
-                // one notification_state is produced instead of the historical duplicate pair.
-                UNAuthorizationStatusProvider.current = MockUNAuthorizationStatusProviding(status: .authorized)
-                pushManager.applicationDidBecomeActive()
-                pushManager.applicationDidBecomeActive()
-                let states = trackingManager.trackedEvents.filter { $0.type == .notificationState }
-                expect(states).to(haveCount(1))
-                expect(states.first).to(equal(
-                    MockTrackingManager.TrackedEvent(
-                        type: .notificationState,
-                        data: [
-                            .properties([
-                                "platform": .string("ios"),
-                                "application_id": .string("default-application"),
-                                "device_id": .string("device-id"),
-                                "description": .string("Permission granted")
-                            ]),
-                            .pushNotificationToken(
-                                token: "dedup-token",
-                                authorized: true
-                            ),
-                            .eventType("notification_state")
-                        ]
-                    )
-                ))
-            }
-
-            it("does not suppress an Invalidated + Permission granted pair from a real token rotation") {
-                // A genuine token change legitimately emits two notification_state events whose
-                // descriptions (and validity) differ, so the single-slot dedup guard must let both
-                // through — the pair is not a duplicate.
-                UNAuthorizationStatusProvider.current = MockUNAuthorizationStatusProviding(status: .authorized)
-                let rotatedToken = "rotated_token".data(using: .utf8)! as AnyObject
-                pushManager.handlePushTokenRegistered(dataObject: rotatedToken)
-                let states = trackingManager.trackedEvents.filter { $0.type == .notificationState }
-                expect(states).to(haveCount(2))
-                expect(states.compactMap { event -> String? in
-                    for case let .properties(props) in event.data,
-                        case let .string(description)? = props["description"] {
-                        return description
-                    }
-                    return nil
-                }).to(equal(["Invalidated", "Permission granted"]))
-            }
-
             context("should track permission re-grant after revoke for all token track frequencies") {
                 let tokenTrackFrequencyTypes: [ExponeaSDK.TokenTrackFrequency] = [.onTokenChange, .everyLaunch, .daily]
 
