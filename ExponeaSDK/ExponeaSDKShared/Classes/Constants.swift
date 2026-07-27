@@ -99,6 +99,16 @@ public enum Constants {
         /// future weakening of the daily gate (which fires far earlier than the staleness
         /// window today, making the extra check a no-op in practice).
         public static let maxNotificationStateStalenessDays = 30
+
+        /// De-duplication window for `notification_state` emissions. Multiple asynchronous
+        /// entry points (init verify, `didBecomeActive` verify, APNs registration, pre-init
+        /// buffer drain) can each independently decide to emit the *same* `notification_state`
+        /// within a very short span of a single launch. Any two emissions carrying an
+        /// identical `(token, isValid, description)` key closer together than this window are
+        /// collapsed to the first one. The window is intentionally short so a genuine, human
+        /// permission toggle (which is orders of magnitude slower) is never suppressed, while
+        /// the machine-speed launch-time duplicates are.
+        public static let notificationStateDedupWindowSeconds: TimeInterval = 5
     }
 
     /// General constants
