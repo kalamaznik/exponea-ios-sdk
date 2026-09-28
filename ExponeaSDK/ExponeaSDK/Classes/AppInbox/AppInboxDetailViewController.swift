@@ -24,7 +24,7 @@ open class AppInboxDetailViewController: UIViewController, WKUIDelegate {
     public let action2 = UIButton()
     public let action3 = UIButton()
     public let action4 = UIButton()
-    public let htmlContainer = WKWebView()
+    public let htmlContainer = WKWebView(frame: .zero, configuration: HtmlNormalizer.createWebViewConfiguration())
 
     private let SUPPORTED_MESSAGE_ACTION_TYPES: [MessageItemActionType] = [
         .deeplink, .browser
@@ -211,7 +211,13 @@ open class AppInboxDetailViewController: UIViewController, WKUIDelegate {
                 makeResourcesOffline: true,
                 ensureCloseButton: false
             )
-            let normalizedPayload = HtmlNormalizer(selfWhileAsync.data?.content?.html ?? "").normalize(normalizeConf)
+            guard let normalizedPayload = HtmlRenderResourcePreloader().prepareNormalizedHtml(
+                html: selfWhileAsync.data?.content?.html ?? "",
+                config: normalizeConf
+            ) else {
+                Exponea.logger.log(.error, message: "AppInbox message contains invalid HTML")
+                return
+            }
             guard
                 normalizedPayload.valid
             else {
@@ -312,17 +318,9 @@ open class AppInboxDetailViewController: UIViewController, WKUIDelegate {
     }
 
     open func translateReceivedTime(_ source: Date) -> String {
-        if #available(iOS 13.0, *) {
-            let formatter = RelativeDateTimeFormatter()
-            formatter.unitsStyle = .full
-            return formatter.localizedString(for: source, relativeTo: Date())
-        } else {
-            let formatter = DateFormatter()
-            formatter.timeStyle = .long
-            formatter.dateStyle = .long
-            formatter.doesRelativeDateFormatting = true
-            return formatter.string(from: source)
-        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: source, relativeTo: Date())
     }
 }
 
@@ -330,13 +328,11 @@ open class AppInboxDetailViewController: UIViewController, WKUIDelegate {
 private extension AppInboxDetailViewController {
     func convertToDarkIfNeeded() {
         guard Exponea.shared.isDarkMode else { return }
-        if #available(iOS 13.0, *) {
-            view.backgroundColor = .systemBackground
-            messageImage.backgroundColor = .secondarySystemBackground
-            messageTitle.textColor = .label
-            message.textColor = .secondaryLabel
-            htmlContainer.backgroundColor = .systemBackground
-        }
+        view.backgroundColor = .systemBackground
+        messageImage.backgroundColor = .secondarySystemBackground
+        messageTitle.textColor = .label
+        message.textColor = .secondaryLabel
+        htmlContainer.backgroundColor = .systemBackground
     }
 
     func setupElements() {

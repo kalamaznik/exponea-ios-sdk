@@ -8,7 +8,7 @@ parent:
 content:
   excerpt: >-
     Display native in-app content blocks based on definitions set up in
-    Engagement using the iOS SDK
+    Marketing using the iOS SDK
 ---
 
 In-app content blocks provide a way to display campaigns within your mobile applications that seamlessly blend with the overall app design. Unlike [In-app messages for iOS SDK](https://documentation.bloomreach.com/engagement/docs/ios-sdk-in-app-messages) that appear as overlays or pop-ups demanding immediate attention, in-app content blocks display inline with the app's existing content.
@@ -17,13 +17,13 @@ You can strategically position placeholders for in-app content blocks within you
 
 > 📘
 >
-> Refer to the [In-app content blocks](https://documentation.bloomreach.com/engagement/docs/in-app-content-blocks) user guide for instructions on how to create in-app content blocks in Engagement.
+> Refer to the [In-app content blocks](https://documentation.bloomreach.com/engagement/docs/in-app-content-blocks) user guide for instructions on how to create in-app content blocks in {user.mkg}.
 
 ![In-app content blocks in the example app](https://raw.githubusercontent.com/exponea/exponea-ios-sdk/main/Documentation/images/in-app-content-blocks.png)
 
 ## Integration of a placeholder view
 
-You can integrate in-app content blocks by adding one or more placeholder views in your app. Each in-app content block must have a `Placeholder ID` specified in its [settings](https://documentation.bloomreach.com/engagement/docs/in-app-content-blocks#3-fill-the-settings) in Engagement. The SDK will display an in-app content block in the corresponding placeholder in the app if the current app user matches the target audience.
+You can integrate in-app content blocks by adding one or more placeholder views in your app. Each in-app content block must have a `Placeholder ID` specified in its [settings](https://documentation.bloomreach.com/engagement/docs/in-app-content-blocks#3-fill-the-settings) in {user.mkg}. The SDK will display an in-app content block in the corresponding placeholder in the app if the current app user matches the target audience.
 
 ### In a generic view
 
@@ -38,7 +38,7 @@ Then, place the placeholder view at the desired location by adding it as a sub v
 view.addSubview(placeholder)
 ```
 
-Use the `.reload()` method if you need to reload the content block view:
+Use the `.reload()` method if you need to force a fresh fetch of the content block, ignoring any cached state (for example, on a pull-to-refresh action):
 
 ```swift
 placeholder.reload()
@@ -69,7 +69,7 @@ Exponea.shared.inAppContentBlocksManager?.refreshCallback = { [weak self] indexP
 
 > 👍
 >
-> Always us descriptive, human-readable placeholder IDs. They are tracked as an event property and can be used for analytics within Engagement.
+> Always us descriptive, human-readable placeholder IDs. They are tracked as an event property and can be used for analytics within {user.mkg}.
 
 ## Integration of a carousel view
 
@@ -138,17 +138,137 @@ The SDK automatically tracks `banner` events for in-app content blocks with the 
 
 ## Customization
 
-### Prefetch in-app content blocks
+### Runtime content control
 
-The SDK can only display an in-app content block after it has been fully loaded (including its content, any images, and its height). Therefore, the in-app content block may only show in the app after a delay.
+`Exponea.shared.inAppContentBlocksController` exposes a `RuntimeInContentBlockController` that lets you warm, invalidate, and query content blocks without waiting for placeholder views to mount. The controller is available after SDK [initialization](https://documentation.bloomreach.com/engagement/docs/ios-sdk-setup#initialize-the-sdk) and is `nil` after `stopIntegration()`.
 
-You may prefetch in-app content blocks for specific placeholders to make them display as soon as possible.
+#### API overview
+
+**`prefetch(ids:deadline:)`** — warms the cache for the supplied placeholder IDs before a screen appears. Call as early as the IDs are known.
+
+```swift
+await Exponea.shared.inAppContentBlocksController?.prefetch(ids: ["home_banner", "offer_slot"])
+```
+
+Returns `[String: InAppContentBlockAvailability]` — one entry per requested ID. Possible values:
+
+| Value | Meaning |
+|-------|---------|
+| `.ready` | Content is available and cached. |
+| `.empty` | No eligible content exists for this customer. Stays cached until invalidated or the customer identity changes. |
+| `.loading` | Fetch didn't finish before the optional `deadline`. The background fetch continues and updates the cache. |
+
+Pair this with `StaticInAppContentBlockView(..., deferredLoad: true)` so the view displays cached content as soon as it mounts. A callback overload, `prefetch(ids:deadline:completion:)`, is also available — its completion may run on any queue.
+
+**`invalidate(ids:reason:mode:)`** — drops cached content for specific placeholders without affecting customer identity.
+
+```swift
+Exponea.shared.inAppContentBlocksController?.invalidate(
+    ids: ["promo_banner"],
+    reason: "promocode_applied"
+)
+```
+
+`reason` is written to the local verbose log only. The `mode` parameter is `InAppContentBlockInvalidateMode`:
+
+| Value | Behavior |
+|-------|---------|
+| `.eager` (default) | Drop cache and start a background refetch immediately. |
+| `.lazy` | Drops the cache only — the next access triggers the fetch. |
+
+Prefer `invalidate` over `anonymize()` or `identifyCustomer()` when content should update after an in-session event (a promo code or filter change) without affecting customer identity or frequency caps.
+
+**`availability(id:deadline:)`** — waits up to `deadline` seconds for a placeholder to become ready or empty.
+
+```swift
+let decision = await Exponea.shared.inAppContentBlocksController?
+    .availability(id: "ad_slot", deadline: 0.5)
+```
+
+Returns `InAppContentBlockAvailabilityDecision`:
+
+| Value | Meaning |
+|-------|---------|
+| `.resolved(.ready)` | Content is available within the deadline. |
+| `.resolved(.empty)` | No content exists within the deadline. |
+| `.timedOut` | The deadline elapsed while the placeholder was still loading. The background fetch continues. |
+
+The completion always runs on the main queue. After a customer identity change, the deadline covers both catalog loading and personalization.
+
+#### Customer identity changes
+**`anonymize()`** clears the in-app content block cache and controller state, then immediately reloads the catalog and prefetches placeholders listed in `inAppContentBlocksPlaceholders` for the new anonymous customer. Behavior is identical to SDK [initialization](https://documentation.bloomreach.com/engagement/docs/ios-sdk-setup#initialize-the-sdk).
+**`identifyCustomer()`** with new IDs clears the in-app content block cache and controller availability state for the previous customer. The catalog **isn't** reloaded eagerly — it's fetched lazily on the first subsequent controller or manager call. Unlike `anonymize()`, configured placeholders aren't eagerly re-prefetched — call `prefetch(ids:)` explicitly after `identifyCustomer()` if you need a warm cache for the new customer.
+
+#### Other notes
+
+- `.empty` stays cached until you call `invalidate` or the customer identity changes.
+- Don't call `inAppContentBlocksManager.prefetchPlaceholdersWithIds` and `inAppContentBlocksController.prefetch` for the same placeholder in parallel. The controller doesn't track manager-only prefetch.
+- Pending `availability` waiters are resolved as `.timedOut` when `stopIntegration` runs.
+
+### Migrating to RuntimeInContentBlockController
+
+**Forcing a content refresh after an in-session event**
+
+If your integration calls `identifyCustomer()` or `anonymize()` as a way to force a content refresh after a personalisation event such as a promo-code redemption, replace that with a targeted `invalidate`:
+
+```swift
+// Before
+Exponea.shared.anonymize()
+
+// After
+Exponea.shared.inAppContentBlocksController?.invalidate(
+    ids: ["promo_banner"],
+    reason: "promocode_applied"
+)
+```
+
+`invalidate` drops and refetches only the affected placeholder — no identity rotation, no frequency-cap reset, no full catalog reload.
+
+**Bounded-time availability with fallback**
+
+When content must render within a deadline or fall back to another source:
+
+```swift
+// Warm cache before the screen appears (call as soon as IDs are known)
+await Exponea.shared.inAppContentBlocksController?.prefetch(ids: ["ad_slot"])
+
+// At render time
+switch await Exponea.shared.inAppContentBlocksController?.availability(id: "ad_slot", deadline: 0.5) {
+case .resolved(.ready):
+    showBloomreachBanner()
+case .resolved(.empty), .timedOut, .none:
+    showFallbackAd()
+}
+```
+
+If `availability` times out, the background fetch continues. Mount the placeholder view with `deferredLoad: true` to display late-arriving content without re-requesting.
+
+**Prefetch ordering**
+
+`prefetch` is only effective when called **before** the placeholder view mounts. The canonical sequence is:
+
+1. Receive placeholder IDs (for example, from a CMS layout response).
+2. Call `prefetch(ids:)` immediately.
+3. Navigate to the screen.
+4. Mount `StaticInAppContentBlockView(..., deferredLoad: true)` — content is already cached.
+
+Calling `prefetch` after the view has mounted and begun its own load provides no benefit. Repeated `prefetch` calls for the same IDs safely coalesce: if the IDs are already cached, no network call is made.
+
+After `identifyCustomer()` the controller's availability cache is cleared. Call `prefetch(ids:)` again to restore warm-cache behavior for the new customer.
+
+### Prefetch in-app content blocks (manager API)
+
+The manager-level prefetch API remains available for existing integrations:
 
 ```swift
 Exponea.shared.inAppContentBlocksManager?.prefetchPlaceholdersWithIds(ids: ["placeholder_1", "placeholder_2"])
 ```
 
-This must be done after SDK [initialization](https://documentation.bloomreach.com/engagement/docs/ios-sdk-setup#initialize-the-sdk) and after calling `anonymize` or `identifyCustomer`. Prefetching should not be done at any other time.
+Prefer `inAppContentBlocksController` for new work. At SDK initialization, placeholders listed in `inAppContentBlocksPlaceholders` are still prefetched automatically.
+
+> 📘
+>
+> Calling `anonymize()`, `identifyCustomer()` with new IDs, or `stopIntegration()` clears all stored ETag values and the personalized content cache. ETags persist across app process restarts (cold start) but are cleared when the SDK session is torn down or the customer identity is reset. This ensures requests issued under a new customer identity never carry an ETag derived from a previous identity's response.
 
 ### Handle carousel presentation status
 
@@ -178,10 +298,29 @@ To add a placeholder to your layout but defer loading of the corresponding in-ap
 let placeholderView = StaticInAppContentBlockView(placeholder: "placeholder", deferredLoad: true)
 ```
 
-Then call `reload()` later when the placeholder becomes visible to the user:
+Then call `load()` when the placeholder becomes visible to the user to trigger the initial non-forced load:
 ```swift
-placeholderView.reload()
+placeholderView.load()
 ```
+
+> 📘
+>
+> Use `load()` for the initial trigger and for re-checking content when navigating back to a screen. Use `reload()` only when an explicit force-refresh is required (for example, a pull-to-refresh action). The difference is:
+> - `load()` uses the server-side TTL to decide whether a network request is needed. When content hasn't expired, it renders from cache with no network call. When the TTL has expired, the SDK sends a conditional request with an `If-None-Match` header. If the server confirms nothing has changed, it responds with `304 Not Modified` and the cached content is re-displayed without re-downloading the full payload.
+> - `reload()` always sends a fresh unconditional network request without an `If-None-Match` header, ignoring any cached state. The stored ETag is updated with the new value from the resulting `200 OK` response.
+
+### Refresh content on screen re-appearance
+
+To ensure that a placeholder re-checks its content when the user navigates back to a screen (for example, after the server-side TTL has expired), call `load()` in `viewWillAppear`:
+
+```swift
+override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    placeholderView.load()
+}
+```
+
+If the server-side content has changed, the server returns `200 OK` with the updated payload, which the SDK processes and renders normally.
 
 ### Display in-app content block after content has loaded
 
@@ -230,8 +369,8 @@ let placeholderView = StaticInAppContentBlockView(placeholder: "placeholder", de
 let originalBehaviour = placeholderView.behaviourCallback
 placeholderView.behaviourCallback = CustomInAppContentBlockCallback(originalBehaviour: originalBehaviour)
 
-// `placeholderView` has deferred load, so we trigger it
-placeholderView.reload()
+// `placeholderView` has deferred load, so we trigger the initial non-forced load
+placeholderView.load()
 ```
 
 The callback behavior object must implement `InAppContentBlockCallbackType`. The example below calls the original (default) behavior. This is recommended but not required.
@@ -423,7 +562,7 @@ class CustomView: UIViewController {
             placeholder,
             self
         )
-        placeholderView.reload()
+        placeholder.load()
     }
 }
 ```
@@ -507,7 +646,7 @@ class CustomView: UIViewController, InAppCbViewDelegate {
 
 A carousel view filters available content blocks in the same way as a placeholder view:
 
-- The content block must meet the `Display` setting configured in the Engagement web app
+- The content block must meet the `Display` setting configured in the {user.mkg} web app
 - The content must be valid and supported by the SDK
 
 The order in which content blocks are displayed is determined by:
@@ -558,7 +697,18 @@ This section provides helpful pointers for troubleshooting in-app content blocks
 ### In-app content block not displayed
 
 - The SDK can only display an in-app content block after it has been fully loaded (including its content, any images, and its height). Therefore, the in-app content block may only show in the app after a delay.
-- Always ensure that the placeholder IDs in the in-app content block configuration (in the Engagement web app) and in your mobile app match.
+- Always ensure that the placeholder IDs in the in-app content block configuration (in the {user.mkg} web app) and in your mobile app match.
+- If the backend environment doesn't support conditional revalidation yet (no `ETag` header returned), the SDK operates identically to its previous behavior: no `If-None-Match` header is sent and the full payload is downloaded on every TTL re-fetch. No configuration change is needed.
+
+### ETag cache granularity
+
+Conditional revalidation uses batch-level ETag keys derived from the exact set of message IDs included in each network request. This is a deliberate trade-off for the current release:
+
+- For static placeholders batched together, the ID set can vary between queue ticks. This means that a previously stored ETag may not be reused even when content is unchanged.
+- For embedded list placeholders, ETag is sent only on pure TTL revalidation (when the expired set exactly matches the blocks being fetched). Mixed fresh and expired blocks in one call skip ETag and fetch unconditionally.
+- When one placeholder in a static batch calls `reload()`, the entire batch skips conditional revalidation for that tick.
+
+These cases never serve stale content; they may issue a full fetch where a 304 would have been possible. Finer per-block ETag keys are a possible future improvement.
 
 ### In-app content block shows incorrect image
 
@@ -571,12 +721,12 @@ While troubleshooting in-app content block issues, you can find useful informati
 1. ```
     InAppCB: Placeholder ["placeholder"] has invalid state - action or message is invalid.
     ```
-    Data for the message is nil. Try to call `.reload()` method over static CB.
+    Data for the message is nil. Try to call `.load()` to trigger a non-forced re-check, or `.reload()` to force a full re-fetch.
 
 2. ```
     InAppCB: Unknown action URL: ["url"]
     ```
-    Invalid action URL. Verify the URL for the content block in the Engagement web app.
+    Invalid action URL. Verify the URL for the content block in the {user.mkg} web app.
 3. ```
     InAppCB: Manual action ["actionUrl"] invoked on placeholder ["placeholder"]
     ```
@@ -593,4 +743,9 @@ While troubleshooting in-app content block issues, you can find useful informati
     [HTML] Action ["url"] has been handled
     ```
     Everything is set up correctly.
-    
+
+7. ```
+    ICB: 304 Not Modified — cache hit for placeholder(s): ["placeholder"]
+    ```
+    The server confirmed that the cached content is still current. No new payload was downloaded and the existing cached content is being re-displayed. This is expected behavior after a TTL-driven re-fetch when content hasn't changed on the backend.
+

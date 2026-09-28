@@ -44,8 +44,7 @@ public class ExponeaNotificationContentService {
     }
 
     private func createActions(notification: UNNotification, context: NSExtensionContext?) {
-        guard #available(iOS 12.0, *),
-              let context = context,
+        guard let context = context,
               let actionsObject = notification.request.content.userInfo["actions"],
               let data = try? JSONSerialization.data(withJSONObject: actionsObject, options: []),
               let actions = try? decoder.decode([ExponeaNotificationAction].self, from: data) else {
@@ -65,8 +64,15 @@ public class ExponeaNotificationContentService {
 
     private func createImageView(on view: UIView, with imagePath: String) {
         let url = URL(fileURLWithPath: imagePath)
-        guard let data = try? Data(contentsOf: url),
-              let image = UIImage(data: data) else {
+        guard let data = try? Data(contentsOf: url) else {
+            Exponea.logger.log(.warning, message: "Unable to load image contents \(imagePath)")
+            return
+        }
+        let isAnimated = data.isGif || data.isExtendedWebP
+        let screen = view.window?.screen ?? UIScreen.main
+        let maxPixelSize = Int(screen.bounds.width * screen.scale)
+        guard let image = (isAnimated ? UIImage.gif(data: data, maxPixelSize: maxPixelSize) : nil)
+                ?? UIImage(data: data) else {
             Exponea.logger.log(.warning, message: "Unable to load image contents \(imagePath)")
             return
         }

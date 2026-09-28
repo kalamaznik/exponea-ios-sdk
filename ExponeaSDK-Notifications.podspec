@@ -16,7 +16,7 @@ Pod::Spec.new do |s|
   #
 
   s.name         = "ExponeaSDK-Notifications"
-  s.version      = "4.2.0"
+  s.version      = "5.0.0"
   s.summary      = "A completementary extension-safe framework for supporting rich push notifications in Exponea SDK."
 
   # This description is used to generate tags and improve search results.
@@ -59,7 +59,7 @@ Pod::Spec.new do |s|
   #  the deployment target. You can optionally include the target after the platform.
   #
 
-  s.platform     = :ios, "13.0"
+  s.platform     = :ios, "15.0"
   s.swift_versions = ['4.2.0', '5.0', '5.6.1', '5.7', '5.8', '5.8.1', '5.9', '5.10']
 
   # ――― Source Location ―――――――――――――――――――――――――――――――――――――――――――――――――――――――――― #

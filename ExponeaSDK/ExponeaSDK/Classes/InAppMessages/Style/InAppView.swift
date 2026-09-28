@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 public struct InAppView: View {
 
@@ -18,6 +19,7 @@ public struct InAppView: View {
     public let imageConfig: InAppImageComponentConfig
     public var textCompletionHeight: TypeBlock<CGFloat>?
     @ObservedObject var config: InAppViewConfig = .init()
+    private let preloadedImage: UIImage?
     private let isFullscreen: Bool
 
     private var isTextVisible: Bool {
@@ -31,6 +33,7 @@ public struct InAppView: View {
         bodyConfig: InAppBodyLabelConfig,
         closeButtonConfig: InAppCloseButtonConfig,
         imageConfig: InAppImageComponentConfig,
+        preloadedImage: UIImage? = nil,
         isFullscreen: Bool
     ) {
         self.layouConfig = layouConfig
@@ -39,22 +42,16 @@ public struct InAppView: View {
         self.bodyConfig = bodyConfig
         self.closeButtonConfig = closeButtonConfig
         self.imageConfig = imageConfig
+        self.preloadedImage = preloadedImage
         self.isFullscreen = isFullscreen
-
-        let layoutTop = layouConfig.margin.first(where: { $0.edge == .top })?.value ?? 0
-        let layoutBottom = layouConfig.margin.first(where: { $0.edge == .bottom })?.value ?? 0
-        let titleTop = titleConfig.padding.first(where: { $0.edge == .top })?.value ?? 0
-        let titleBottom = titleConfig.padding.first(where: { $0.edge == .bottom })?.value ?? 0
-        let bodyTop = bodyConfig.padding.first(where: { $0.edge == .top })?.value ?? 0
-        let boodyBottom = bodyConfig.padding.first(where: { $0.edge == .bottom })?.value ?? 0
-
-        config.calculatedPaddings = layoutTop + layoutBottom + titleTop + titleBottom + bodyTop + boodyBottom
     }
 
     private var width: CGFloat {
         let trailing = layouConfig.margin.first(where: { $0.edge == .trailing })?.value ?? 0
         let leading = layouConfig.margin.first(where: { $0.edge == .leading })?.value ?? 0
-        return UIScreen.main.bounds.width - trailing - leading
+        let paddingTrailing = layouConfig.padding.first(where: { $0.edge == .trailing })?.value ?? 0
+        let paddingLeading = layouConfig.padding.first(where: { $0.edge == .leading })?.value ?? 0
+        return UIScreen.main.bounds.width - trailing - leading - paddingTrailing - paddingLeading
     }
 
     private var titleWidth: CGFloat {
@@ -102,42 +99,11 @@ public struct InAppView: View {
 
     private var imageArea: some View {
         VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                InAppImageComponent(config: imageConfig, layoutConfig: layouConfig)
-                closeButtonView
-            }
-        }
-    }
-
-    private var closeButtonView: some View {
-        VStack(spacing: 0) {
-            GeometryReader { proxy in
-                if closeButtonConfig.visibility {
-                    HStack(spacing: 0) {
-                        Spacer()
-                        VStack(spacing: 0) {
-                            InAppCloseButton(config: closeButtonConfig)
-                                .padding(
-                                    .top,
-                                    closeButtonConfig.margin.first(where: { $0.edge == .top })?.value ?? 0
-                                )
-                                .padding(
-                                    .trailing,
-                                    (closeButtonConfig.margin.first(where: { $0.edge == .trailing })?.value ?? 0)
-                                )
-                                .frame(width:
-                                        closeButtonConfig.sizeWithPadding.width,
-                                       height: closeButtonConfig.sizeWithPadding.height
-                                )
-                            if config.shouldBeScrollable {
-                                Spacer()
-                            }
-                        }
-                    }
-                    .frame(width: proxy.size.width)
-                    .background(Color.clear)
-                }
-            }
+            InAppImageComponent(
+                config: imageConfig,
+                layoutConfig: layouConfig,
+                preloadedImage: preloadedImage
+            )
         }
     }
 
@@ -171,7 +137,11 @@ public struct InAppView: View {
     var imageOnly: some View {
         VStack(spacing: 0) {
             if imageConfig.isVisible {
-                InAppImageComponent(config: imageConfig, layoutConfig: layouConfig)
+                InAppImageComponent(
+                    config: imageConfig,
+                    layoutConfig: layouConfig,
+                    preloadedImage: preloadedImage
+                )
                 .padding(.bottom, imageConfig.margin.first(where: { $0.edge == .bottom })?.value ?? 0)
                 .padding(.top, imageConfig.margin.first(where: { $0.edge == .top })?.value ?? 0)
                 .padding(.trailing, imageConfig.margin.first(where: { $0.edge == .trailing })?.value ?? 0)
@@ -210,20 +180,12 @@ public struct InAppView: View {
                     .padding(.trailing, layouConfig.padding.first(where: { $0.edge == .trailing })?.value ?? 0)
                     .padding(.leading, layouConfig.padding.first(where: { $0.edge == .leading })?.value ?? 0)
                 }
-                .overlay(
-                    closeButtonView
-                        .zIndex(4),
-                    alignment: .topTrailing
-                )
             case config.shouldBeScrollable:
                 if layouConfig.textPosition == .top {
                     VStack(spacing: 0) {
-                        ZStack {
-                            ScrollView(showsIndicators: false) {
-                                textArea
-                                imageOnly
-                            }
-                            closeButtonView
+                        ScrollView(showsIndicators: false) {
+                            textArea
+                            imageOnly
                         }
                         footer
                     }
@@ -233,12 +195,9 @@ public struct InAppView: View {
                     .padding(.leading, layouConfig.padding.first(where: { $0.edge == .leading })?.value ?? 0)
                 } else {
                     VStack(spacing: 0) {
-                        ZStack {
-                            ScrollView(showsIndicators: false) {
-                                imageOnly
-                                textArea
-                            }
-                            closeButtonView
+                        ScrollView(showsIndicators: false) {
+                            imageOnly
+                            textArea
                         }
                         footer
                     }
@@ -249,10 +208,7 @@ public struct InAppView: View {
                 }
             case layouConfig.textPosition == .bottom:
                 VStack(spacing: 0) {
-                    ZStack(alignment: .top) {
-                        imageOnly
-                        closeButtonView
-                    }
+                    imageOnly
                     textArea
                     footer
                 }
@@ -262,10 +218,7 @@ public struct InAppView: View {
                 .padding(.leading, layouConfig.padding.first(where: { $0.edge == .leading })?.value ?? 0)
             case layouConfig.textPosition == .top:
                 VStack(spacing: 0) {
-                    ZStack(alignment: .top) {
-                        textArea
-                        closeButtonView
-                    }
+                    textArea
                     imageOnly
                     footer
                 }
@@ -278,11 +231,9 @@ public struct InAppView: View {
             }
         }
         .background(Color(UIColor.parse(layouConfig.backgroundColor) ?? .clear))
+        .inAppCloseButtonOverlay(config: closeButtonConfig)
         .readHeight { height in
-            config.debouncer.debounce {
-                print("height: \(height)")
-                self.config.height = height
-            }
+            self.config.height = height
         }
         .onAppear {
             config.textCompletionHeight = { height in

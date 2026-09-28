@@ -28,7 +28,7 @@ Navigate to `File` > `New` > `Target` in Xcode and select the extension type (`N
 
 > ❗️
 >
->  Make sure that the `iOS Deployment Target` of your extension is the same as for your main app.
+>  Ensure the `iOS Deployment Target` of your extension matches your main app (minimum **iOS 15.0**).
 
 
 ## Step 2: Configure ExponeaSDK-Notifications dependency
@@ -54,7 +54,7 @@ Follow the instructions in the relevant section for the dependency manager you u
 
 Optionally, you can specify the ExponeaSDK version as follows to let `pod` automatically any smaller than minor version updates:
 ```
-pod "ExponeaSDK-Notifications", "~> 4.2.0"
+pod "ExponeaSDK-Notifications", "~> 5.0.0"
 ```
 
 ### Swift Package Manager

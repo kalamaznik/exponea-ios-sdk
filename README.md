@@ -3,17 +3,18 @@
 </p>
 
 ![Platform](https://img.shields.io/badge/Platform-iOS-lightgrey.svg?style=flat)
+![Minimum iOS](https://img.shields.io/badge/Minimum%20iOS-15.0-lightgrey.svg?style=flat)
 ![Platform](https://img.shields.io/badge/Swift-4.2+-green.svg?style=flat)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Exponea iOS SDK
 
-This library allows you to interact with Bloomreach Engagement from your application or game. Engagement empowers B2C marketers to raise conversion rates, improve acquisition ROI, and maximize customer lifetime value.
+This library allows you to interact with Bloomreach Marketing from your application or game. Marketing empowers B2C marketers to raise conversion rates, improve acquisition ROI, and maximize customer lifetime value.
 
 It has been written 100% in Swift with ❤️
 
 > 
-> Bloomreach Engagement was formerly known as Exponea. For backward compatibility, the Exponea name continues to be used in the iOS SDK.
+> Bloomreach Marketing was formerly known as Exponea. For backward compatibility, the Exponea name continues to be used in the iOS SDK.
 
 ## 📦 Installation
 
@@ -21,11 +22,11 @@ It has been written 100% in Swift with ❤️
 
 ```ruby
 # Add this under your main application target
-pod "ExponeaSDK", "~> 4.2.0"
+pod "ExponeaSDK", "~> 5.0.0"
 
 # If you also use rich push notifications,
 # add this line to your notification service extension target.
-pod "ExponeaSDK-Notifications", "~> 4.2.0"
+pod "ExponeaSDK-Notifications", "~> 5.0.0"
 ```
 
 ## 📱 Example Application
@@ -60,7 +61,7 @@ Follow the detailed [step by step guide here](https://documentation.bloomreach.c
 
 ## 🔗 Useful links
 
-* [Bloomreach Engagement login](https://app.exponea.com/login)
+* [Bloomreach Marketing login](https://app.exponea.com/login)
 
 ## 📝 Release Notes
 
@@ -68,7 +69,7 @@ Release notes can be found [here](https://documentation.bloomreach.com/engagemen
 
 ## Support
 
-Are you a Bloomreach customer and having some issues with the mobile SDK? You can reach the official Engagement Support [via these recommended ways](https://documentation.bloomreach.com/engagement/docs/engagement-support#contacting-the-support).
+Are you a Bloomreach customer and having some issues with the mobile SDK? You can reach the official Marketing Support [via these recommended ways](https://documentation.bloomreach.com/engagement/docs/engagement-support#contacting-the-support).
 
 Note that Github repository issues and PRs will also be considered but with the lowest priority and without guaranteed output.
 

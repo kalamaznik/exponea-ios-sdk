@@ -11,22 +11,14 @@ import Combine
 
 final class InAppViewConfig: ObservableObject {
     var height: CGFloat = 0 {
-        willSet {
-            debouncer.debounce {
-                if self.height != 0 && !self.isLoaded {
-                    self.isLoaded = true
-                    self.textCompletionHeight?(newValue + self.calculatedPaddings)
-                }
+        didSet {
+            debouncer.debounce { [weak self] in
+                guard let self, self.height > 0 else { return }
+                self.textCompletionHeight?(self.height)
             }
         }
     }
     public var textCompletionHeight: TypeBlock<CGFloat>?
-    var isTitleLoaded = false
-    var isBodyLoaded = false
-    var isImageLoaded = false
-    var calculatedPaddings: CGFloat = 0
-
-    var isLoaded = false
     @Published var shouldBeScrollable = false
     var debouncer = Debouncer(delay: 1.5)
 }

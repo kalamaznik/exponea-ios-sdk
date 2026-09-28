@@ -95,6 +95,8 @@ public class ExponeaInternal: ExponeaType {
     private var isStopping = false
 
     public var inAppContentBlocksManager: InAppContentBlocksManagerType?
+    var concreteICBController: RuntimeInContentBlockController?
+    public var inAppContentBlocksController: RuntimeInContentBlockControllerType? { concreteICBController }
     public var segmentationManager: SegmentationManagerType?
     public var manualSegmentationManager: ManualSegmentationManagerType?
 
@@ -123,6 +125,8 @@ public class ExponeaInternal: ExponeaType {
         appInboxManager = nil
         notificationsManager = nil
         campaignRepository = nil
+        concreteICBController?.stopIntegration()
+        concreteICBController = nil
     }
 
     /// Sets the flushing mode for usage
@@ -219,10 +223,7 @@ public class ExponeaInternal: ExponeaType {
 
     public var isDarkMode: Bool {
         guard configuration?.isDarkModeEnabled == true else { return false }
-        if #available(iOS 12.0, *) {
-            return UIScreen.main.traitCollection.userInterfaceStyle == .dark
-        }
-        return false
+        return UIScreen.main.traitCollection.userInterfaceStyle == .dark
     }
 
     /// Once ExponeaSDK runs into a NSException, all further calls will be disabled
@@ -257,7 +258,7 @@ public class ExponeaInternal: ExponeaType {
         return InAppContentBlockDisplayStatusStore(userDefaults: userDefaults)
     }()
 
-    internal var isAppForeground: Bool = false
+    @Atomic internal var isAppForeground: Bool = false
 
     // MARK: - Init -
 
@@ -362,7 +363,6 @@ public class ExponeaInternal: ExponeaType {
                     database: database,
                     repository: repository,
                     customerIdentifiedHandler: { [weak self] in
-                        // reload in-app messages once customer identification is flushed - user may have been merged
                         guard let inAppContentBlocksManager = self?.inAppContentBlocksManager else { return }
                         inAppContentBlocksManager.loadInAppContentBlockMessages {
                             if let placeholders = configuration.inAppContentBlocksPlaceholders {
@@ -415,6 +415,8 @@ public class ExponeaInternal: ExponeaType {
                     onEventCallback: { type, event in
                         self.inAppMessagesManager?.onEventOccurred(of: type, for: event, triggerCompletion: nil)
                         self.appInboxManager?.onEventOccurred(of: type, for: event)
+                        (self.inAppContentBlocksManager as? InAppContentBlocksManager)?
+                            .onEventOccurred(of: type, for: event)
                         if case .immediate = Exponea.shared.flushingMode {
                             self.segmentationManager?.processTriggeredBy(type: .identify)
                         }
@@ -434,10 +436,19 @@ public class ExponeaInternal: ExponeaType {
                 
                 configuration.saveToUserDefaults()
 
-                self.inAppContentBlocksManager = InAppContentBlocksManager.manager
-                self.inAppContentBlocksManager?.initBlocker()
-                self.inAppContentBlocksManager?.loadInAppContentBlockMessages { [weak self] in
-                    self?.inAppContentBlocksManager?.prefetchPlaceholdersWithIds(ids: configuration.inAppContentBlocksPlaceholders ?? [])
+                let inAppContentBlocksManager = InAppContentBlocksManager.manager
+                self.inAppContentBlocksManager = inAppContentBlocksManager
+                self.concreteICBController = RuntimeInContentBlockController(
+                    manager: inAppContentBlocksManager
+                )
+                inAppContentBlocksManager.initBlocker {
+                    inAppContentBlocksManager.prewarmReusableContentBlockResourcesForStartup()
+                }
+                inAppContentBlocksManager.loadInAppContentBlockMessages {
+                    guard !IntegrationManager.shared.isStopped else { return }
+                    inAppContentBlocksManager.prefetchPlaceholdersWithIds(
+                        ids: configuration.inAppContentBlocksPlaceholders ?? []
+                    )
                 }
 
                 if isDebugModeEnabled {
@@ -588,8 +599,13 @@ internal extension ExponeaInternal {
     }
 
     func registerApplicationStateListener() {
-        onMain {
-            self.isAppForeground = UIApplication.shared.applicationState == .active
+        onMain { [weak self] in
+            guard let self else { return }
+            let isActive = UIApplication.shared.applicationState == .active
+            self.isAppForeground = isActive
+            if isActive {
+                self.inAppMessagesManager?.applicationDidBecomeActive()
+            }
         }
         NotificationCenter.default.addObserver(
             self,
@@ -621,10 +637,12 @@ internal extension ExponeaInternal {
 
     @objc func applicationDidBecomeActive() {
         self.isAppForeground = true
+        self.inAppMessagesManager?.applicationDidBecomeActive()
     }
 
     @objc func applicationDidEnterBackground() {
         self.isAppForeground = false
+        self.inAppMessagesManager?.applicationDidEnterBackground()
     }
 }
 
@@ -634,7 +652,7 @@ public extension ExponeaInternal {
     @objc
     func openAppInboxList(sender: UIButton!) {
         onMain {
-            let window = UIApplication.shared.keyWindow
+            let window = WindowHelper.keyWindow
             guard let topViewController = InAppMessagePresenter.getTopViewController(window: window) else {
                 Exponea.logger.log(.error, message: "Unable to show AppInbox list - no view controller")
                 return

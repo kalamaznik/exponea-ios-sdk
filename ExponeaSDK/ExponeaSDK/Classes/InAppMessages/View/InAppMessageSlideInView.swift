@@ -10,6 +10,9 @@ import Foundation
 import UIKit
 import SwiftUI
 import Combine
+#if canImport(ExponeaSDKShared)
+import ExponeaSDKShared
+#endif
 
 public final class InAppMessageSlideInViewModel: ObservableObject {
 
@@ -23,7 +26,6 @@ public final class InAppMessageSlideInViewModel: ObservableObject {
     @Published public var height: CGFloat = 0
     @Published public var isBiggerThanScreen = false
     private var areConfigsSet = false
-    public var isLoaded = false
     var debouncer = Debouncer(delay: 2)
 
     init(
@@ -46,6 +48,7 @@ public final class InAppMessageSlideInViewModel: ObservableObject {
 struct InAppMessageSlideInViewSwiftUI: View {
 
     public let heightCompletion: TypeBlock<CGFloat>?
+    private let preloadedImage: UIImage?
 
     @ObservedObject public var viewModel: InAppMessageSlideInViewModel
 
@@ -60,9 +63,11 @@ struct InAppMessageSlideInViewSwiftUI: View {
         bodyConfig: InAppBodyLabelConfig,
         closeButtonConfig: InAppCloseButtonConfig,
         imageConfig: InAppImageComponentConfig,
+        preloadedImage: UIImage? = nil,
         heightCompletion: TypeBlock<CGFloat>?
     ) {
         self.heightCompletion = heightCompletion
+        self.preloadedImage = preloadedImage
 
         viewModel = .init(
             layouConfig: layouConfig,
@@ -80,27 +85,11 @@ struct InAppMessageSlideInViewSwiftUI: View {
         }
     }
 
-    private var content: some View {
-        VStack(spacing: 0) {
-            imageArea
-            if isTextVisible {
-                if viewModel.closeButtonConfig.visibility && viewModel.imageConfig.isOverlay {
-                    textArea
-                        .padding(.top, (viewModel.closeButtonConfig.margin.first(where: { $0.edge == .top })?.value ?? 0) + 38)
-                } else {
-                    textArea
-                }
-            } else {
-                VStack(spacing: 0) {}
-                    .frame(width: 600)
-            }
-        }
-    }
-
     private var imageArea: some View {
         SlideInAppImageComponent(
             config: viewModel.imageConfig,
-            layoutConfig: viewModel.layouConfig
+            layoutConfig: viewModel.layouConfig,
+            preloadedImage: preloadedImage
         )
     }
 
@@ -188,30 +177,6 @@ struct InAppMessageSlideInViewSwiftUI: View {
         }
     }
 
-    private var closeButtonView: some View {
-        VStack(spacing: 0) {
-            GeometryReader { proxy in
-                if viewModel.closeButtonConfig.visibility {
-                    HStack(alignment: .lastTextBaseline, spacing: 0) {
-                        Spacer()
-                        VStack(spacing: 0) {
-                            InAppCloseButton(config: viewModel.closeButtonConfig)
-                                .padding(
-                                    .top,
-                                    viewModel.closeButtonConfig.margin.first(where: { $0.edge == .top })?.value ?? 0
-                                )
-                                .padding(
-                                    .trailing,
-                                    (viewModel.closeButtonConfig.margin.first(where: { $0.edge == .trailing })?.value ?? 0)
-                                )
-                        }
-                    }
-                    .frame(width: proxy.size.width)
-                }
-            }
-        }
-    }
-
     public var body: some View {
         let topMargin = viewModel.layouConfig.margin.first(where: { $0.edge == .top })?.value ?? 0
         let bottomMargin = viewModel.layouConfig.margin.first(where: { $0.edge == .bottom })?.value ?? 0
@@ -249,10 +214,6 @@ struct InAppMessageSlideInViewSwiftUI: View {
                         .padding(.leading, leadingPadding)
                     }
                 }
-                .overlay(
-                    closeButtonView,
-                    alignment: .topTrailing
-                )
             case viewModel.layouConfig.textPosition == .leading:
                 HStack(alignment: .top, spacing: 0) {
                     VStack(spacing: 0) {
@@ -260,20 +221,13 @@ struct InAppMessageSlideInViewSwiftUI: View {
                         buttonArea
                     }
                     imageArea
-                        .overlay(
-                            closeButtonView,
-                            alignment: .topTrailing
-                        )
                 }
             default:
                 HStack(alignment: .top, spacing: 0) {
                     imageArea
-                    ZStack(alignment: .top) {
-                        VStack(spacing: 0) {
-                            textArea
-                            buttonArea
-                        }
-                        closeButtonView
+                    VStack(spacing: 0) {
+                        textArea
+                        buttonArea
                     }
                 }
             }
@@ -282,6 +236,7 @@ struct InAppMessageSlideInViewSwiftUI: View {
         .clipped(antialiased: true)
         .clipShape(RoundedRectangle(cornerRadius: viewModel.layouConfig.cornerRadius))
         .frame(maxWidth: .infinity)
+        .inAppCloseButtonOverlay(config: viewModel.closeButtonConfig)
         .readHeight { height in
             if !viewModel.isHeightSet {
                 heightCompletion?(height)
@@ -305,7 +260,7 @@ final class InAppMessageSlideInView: UIView, InAppMessageView {
     var setCloseTimeCallback: EmptyBlock?
 
     private var inAppWindow: UIWindow?
-    private var isLoaded = false
+    private var hasAnimatedIn = false
 
     var bottomCons: NSLayoutConstraint?
     var topCons: NSLayoutConstraint?
@@ -320,7 +275,7 @@ final class InAppMessageSlideInView: UIView, InAppMessageView {
                 if newValue != 0 {
                     var top: CGFloat = 0
                     var bottom: CGFloat = 0
-                    if let window = UIApplication.shared.windows.first {
+                    if let window = WindowHelper.keyWindow {
                         top = window.safeAreaInsets.top
                         bottom = window.safeAreaInsets.bottom
                     }
@@ -343,8 +298,11 @@ final class InAppMessageSlideInView: UIView, InAppMessageView {
                     }
                     guard let view = self.slideView else { return }
                     view.layoutIfNeeded()
-                    self.animateIn()
-                    self.setCloseTimeCallback?()
+                    if !self.hasAnimatedIn {
+                        self.animateIn()
+                        self.setCloseTimeCallback?()
+                        self.hasAnimatedIn = true
+                    }
                 }
             }
         }
@@ -401,12 +359,10 @@ final class InAppMessageSlideInView: UIView, InAppMessageView {
             bodyConfig: payload.bodyConfig,
             closeButtonConfig: updatedPayload.closeConfig,
             imageConfig: payload.imageConfig,
+            preloadedImage: image,
             heightCompletion: { newHeight in
-                self.debouncer.debounce {
-                    if !self.isLoaded {
-                        self.isLoaded = true
-                        self.calculatedHeight += newHeight
-                    }
+                if newHeight != 0 {
+                    self.calculatedHeight = newHeight
                 }
             }
         )
@@ -422,11 +378,7 @@ final class InAppMessageSlideInView: UIView, InAppMessageView {
             bottomCons = bottomAnchor.constraint(equalTo: window.bottomAnchor, constant: 1000)
             bottomCons?.isActive = true
         } else {
-            if #available(iOS 11.0, *) {
-                topCons = topAnchor.constraint(equalTo: window.safeAreaLayoutGuide.topAnchor, constant: -1000)
-            } else {
-                topCons = topAnchor.constraint(equalTo: window.topAnchor, constant: -1000)
-            }
+            topCons = topAnchor.constraint(equalTo: window.safeAreaLayoutGuide.topAnchor, constant: -1000)
             topCons?.isActive = true
         }
 
@@ -543,10 +495,11 @@ final class OldInAppMessageSlideInView: UIView, InAppMessageView {
 
     private let payload: InAppMessagePayload
     private let image: UIImage
+    private let imageData: Data?
     let actionCallback: ((InAppMessagePayloadButton) -> Void)
     let dismissCallback: TypeBlock<(Bool, InAppMessagePayloadButton?)>
 
-    private let imageView: UIImageView = UIImageView()
+    private let imageView: UIAnimatedImageView = UIAnimatedImageView()
 
     private let stackView: UIStackView = UIStackView()
     private let titleTextView: UITextView = UITextView()
@@ -571,10 +524,12 @@ final class OldInAppMessageSlideInView: UIView, InAppMessageView {
         payload: InAppMessagePayload,
         image: UIImage,
         actionCallback: @escaping ((InAppMessagePayloadButton) -> Void),
-        dismissCallback: @escaping TypeBlock<(Bool, InAppMessagePayloadButton?)>
+        dismissCallback: @escaping TypeBlock<(Bool, InAppMessagePayloadButton?)>,
+        imageData: Data? = nil
     ) {
         self.payload = payload
         self.image = image
+        self.imageData = imageData
         self.actionCallback = actionCallback
         self.dismissCallback = dismissCallback
 
@@ -597,11 +552,7 @@ final class OldInAppMessageSlideInView: UIView, InAppMessageView {
         if displayOnBottom {
             bottomAnchor.constraint(equalTo: window.bottomAnchor, constant: -10).isActive = true
         } else {
-            if #available(iOS 11.0, *) {
-                topAnchor.constraint(equalTo: window.safeAreaLayoutGuide.topAnchor).isActive = true
-            } else {
-                topAnchor.constraint(equalTo: window.topAnchor).isActive = true
-            }
+            topAnchor.constraint(equalTo: window.safeAreaLayoutGuide.topAnchor).isActive = true
         }
         NSLayoutConstraint.activate([
             leadingAnchor.constraint(equalTo: window.leadingAnchor, constant: 10),
@@ -629,6 +580,7 @@ final class OldInAppMessageSlideInView: UIView, InAppMessageView {
         guard superview != nil else {
             return
         }
+        imageView.clear()
         animateOut {
             self.removeFromSuperview()
         }
@@ -694,7 +646,11 @@ final class OldInAppMessageSlideInView: UIView, InAppMessageView {
     private func setupImage() {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.contentMode = .scaleAspectFill
-        imageView.image = image
+        if let imageData, imageData.isInAppAnimatedImage {
+            imageView.loadImage(imageData: imageData)
+        } else {
+            imageView.image = image
+        }
 
         imageView.layer.cornerRadius = 10
         imageView.clipsToBounds = true

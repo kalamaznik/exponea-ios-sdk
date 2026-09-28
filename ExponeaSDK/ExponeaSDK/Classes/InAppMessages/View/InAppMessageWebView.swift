@@ -62,11 +62,7 @@ final class InAppMessageWebView: UIView, InAppMessageView {
             throw InAppMessagePresenter.InAppMessagePresenterError.unableToPresentView
         }
         window.addSubview(self)
-        if #available(iOS 11.0, *) {
-            topAnchor.constraint(equalTo: window.safeAreaLayoutGuide.topAnchor).isActive = true
-        } else {
-            topAnchor.constraint(equalTo: window.topAnchor).isActive = true
-        }
+        topAnchor.constraint(equalTo: window.safeAreaLayoutGuide.topAnchor).isActive = true
         NSLayoutConstraint.activate([
             leadingAnchor.constraint(equalTo: window.leadingAnchor, constant: 10),
             trailingAnchor.constraint(equalTo: window.trailingAnchor, constant: -10)
@@ -112,11 +108,14 @@ final class InAppMessageWebView: UIView, InAppMessageView {
         addSubview(webView)
 
         DispatchQueue.global(qos: .background).async {
-            self.normalizedPayload = HtmlNormalizer(self.payload).normalize()
+            self.normalizedPayload = HtmlRenderResourcePreloader().prepareNormalizedHtml(
+                html: self.payload,
+                config: HtmlNormalizerConfig(makeResourcesOffline: true, ensureCloseButton: true)
+            )
             onMain {
-                if self.normalizedPayload!.valid {
+                if self.normalizedPayload?.valid == true, let normalizedHtml = self.normalizedPayload?.html {
                     self.actionManager?.htmlPayload = self.normalizedPayload
-                    self.webView.loadHTMLString(self.normalizedPayload!.html!, baseURL: nil)
+                    self.webView.loadHTMLString(normalizedHtml, baseURL: nil)
                 } else {
                     self.dismiss(isUserInteraction: false, cancelButton: nil)
                 }
@@ -133,16 +132,14 @@ final class InAppMessageWebView: UIView, InAppMessageView {
             preferences.isElementFullscreenEnabled = false
         }
         #endif
-        let configuration = WKWebViewConfiguration()
+        let configuration = HtmlNormalizer.createWebViewConfiguration()
         configuration.preferences = preferences
         configuration.allowsAirPlayForMediaPlayback = false
         configuration.allowsInlineMediaPlayback = false
         configuration.allowsPictureInPictureMediaPlayback = false
-        if #available(iOS 14.0, *) {
-            let webPagePreferences = WKWebpagePreferences()
-            webPagePreferences.allowsContentJavaScript = false
-            configuration.defaultWebpagePreferences = webPagePreferences
-        }
+        let webPagePreferences = WKWebpagePreferences()
+        webPagePreferences.allowsContentJavaScript = false
+        configuration.defaultWebpagePreferences = webPagePreferences
         if let contentRuleList = inAppContentBlocksManager.contentRuleList {
             configuration.userContentController.add(contentRuleList)
         }
